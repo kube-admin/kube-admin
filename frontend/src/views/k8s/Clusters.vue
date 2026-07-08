@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>Clusters 列表</span>
-          <el-button type="primary" @click="showCreateDialog">创建 Clusters</el-button>
+          <el-button v-permission="'admin'" type="primary" @click="showCreateDialog">创建 Clusters</el-button>
         </div>
       </template>
 
@@ -55,24 +55,24 @@
         ></el-alert>
         
         <el-form-item label="Config文件内容" prop="config_content">
-          <el-input 
-            v-model="clusterForm.config_content" 
-            type="textarea" 
+          <el-input
+            v-model="clusterForm.config_content"
+            type="textarea"
             :rows="10"
-            placeholder="可选: kubeconfig文件内容，如果填写此项则优先使用内容进行连接"
+            :placeholder="configContentPlaceholder"
             style="font-family: monospace"
           ></el-input>
         </el-form-item>
-        
+
         <el-form-item label="Config文件路径" prop="config_path">
           <el-input v-model="clusterForm.config_path" placeholder="可选: kubeconfig文件路径"></el-input>
         </el-form-item>
-        
+
         <el-form-item label="服务器地址" prop="server_url">
           <el-input v-model="clusterForm.server_url" placeholder="例如: https://kubernetes.default.svc" :disabled="isConnectionMethodDisabled"></el-input>
         </el-form-item>
         <el-form-item label="Token" prop="token">
-          <el-input v-model="clusterForm.token" type="password" placeholder="请输入访问Token" :disabled="isConnectionMethodDisabled"></el-input>
+          <el-input v-model="clusterForm.token" type="password" :placeholder="tokenPlaceholder" :disabled="isConnectionMethodDisabled"></el-input>
         </el-form-item>
         
         <el-alert
@@ -120,7 +120,7 @@ import {
   createCluster,
   updateCluster,
   deleteCluster,
-  testConnection
+  testConnectionById
 } from '@/apis/k8s/clusters'
 
 // 数据状态
@@ -132,6 +132,7 @@ const submitting = ref(false)
 const dialogVisible = ref(false)
 const dialogTitle = ref('添加集群')
 const editingClusterId = ref<number | null>(null)
+const editingCluster = ref<any>(null) // 编辑中的集群对象，用于判断已配置状态
 
 // 测试连接结果对话框
 const testResultVisible = ref(false)
@@ -154,6 +155,21 @@ const clusterForm = reactive({
 // 计算属性：判断连接方式是否被禁用
 const isConnectionMethodDisabled = computed(() => {
   return !!clusterForm.config_content
+})
+
+// 动态 placeholder：编辑时提示已配置字段留空保持不变
+const configContentPlaceholder = computed(() => {
+  if (editingClusterId.value && editingCluster.value?.has_config_content) {
+    return '已配置，留空表示不修改'
+  }
+  return '可选: kubeconfig文件内容，如果填写此项则优先使用内容进行连接'
+})
+
+const tokenPlaceholder = computed(() => {
+  if (editingClusterId.value && editingCluster.value?.has_token) {
+    return '已配置，留空表示不修改'
+  }
+  return '请输入访问Token'
 })
 
 // 表单验证规则
@@ -191,13 +207,14 @@ const fetchClusters = async () => {
 const showCreateDialog = () => {
   dialogTitle.value = '添加集群'
   editingClusterId.value = null
+  editingCluster.value = null
   // 重置表单
   clusterForm.name = ''
   clusterForm.description = ''
   clusterForm.server_url = ''
   clusterForm.token = ''
   clusterForm.config_path = ''
-  clusterForm.config_content = '' // 新增：配置文件内容
+  clusterForm.config_content = ''
   dialogVisible.value = true
 }
 
@@ -205,13 +222,14 @@ const showCreateDialog = () => {
 const editCluster = (cluster: any) => {
   dialogTitle.value = '编辑集群'
   editingClusterId.value = cluster.id
-  // 填充表单数据
+  editingCluster.value = cluster
+  // 填充表单数据（敏感字段不回填，留空表示不修改）
   clusterForm.name = cluster.name
   clusterForm.description = cluster.description
   clusterForm.server_url = cluster.server_url
-  clusterForm.token = '' // 不显示已有token
+  clusterForm.token = ''
   clusterForm.config_path = cluster.config_path || ''
-  clusterForm.config_content = cluster.config_content || '' // 新增：配置文件内容
+  clusterForm.config_content = ''
   dialogVisible.value = true
 }
 
@@ -219,11 +237,12 @@ const editCluster = (cluster: any) => {
 const submitCluster = async () => {
   if (!clusterFormRef.value) return
   
-  // 根据配置内容的存在与否动态调整验证规则
+  // 创建时强制要求连接方式；编辑时敏感字段留空表示保留，不强制
+  const requireConn = !editingClusterId.value && !clusterForm.config_content && !clusterForm.config_path
   const dynamicRules = {
     name: [{ required: true, message: '请输入集群名称', trigger: 'blur' }],
-    server_url: [{ required: !clusterForm.config_content && !clusterForm.config_path, message: '请输入服务器地址', trigger: 'blur' }],
-    token: [{ required: !clusterForm.config_content && !clusterForm.config_path, message: '请输入Token', trigger: 'blur' }]
+    server_url: [{ required: requireConn, message: '请输入服务器地址', trigger: 'blur' }],
+    token: [{ required: requireConn, message: '请输入Token', trigger: 'blur' }]
   }
 
   // 更新表单验证规则
@@ -286,17 +305,10 @@ const switchToCluster = (cluster: any) => {
   window.dispatchEvent(new CustomEvent('clusterChanged', { detail: cluster }))
 }
 
-// 测试连接
+// 测试连接（已保存集群基于ID测试，后端使用解密后的凭据）
 const testConnectionHandler = async (cluster: any) => {
   try {
-    const requestData = {
-      server_url: cluster.server_url,
-      token: cluster.token,
-      config_path: cluster.config_path,
-      config_content: cluster.config_content // 新增：配置文件内容
-    }
-    const response: any = await testConnection(requestData)
-    // 修复数据处理逻辑，统一使用 response.data.data 格式
+    const response: any = await testConnectionById(cluster.id)
     testResult.value = response.data?.data || {
       success: false,
       message: '测试连接失败',

@@ -181,6 +181,32 @@ export const createPodFromYaml = (yaml: string) => {
   return request.post('/api/v1/pods/yaml', { yaml }, { params })
 }
 
+// 获取Pod日志流 WebSocket URL（实时流式，支持 follow/previous/tail_lines/since_seconds）
+export const getPodLogsStreamUrl = (
+  name: string,
+  namespace: string = 'default',
+  container: string = '',
+  opts: { follow?: boolean; previous?: boolean; tailLines?: number; sinceSeconds?: number } = {}
+) => {
+  const clusterId = getCurrentClusterId()
+  let apiUrl = `/api/v1/pods/${name}/logs/stream?namespace=${namespace}&container=${container}`
+  apiUrl += `&follow=${opts.follow ? 'true' : 'false'}`
+  apiUrl += `&previous=${opts.previous ? 'true' : 'false'}`
+  apiUrl += `&tail_lines=${opts.tailLines ?? 1000}`
+  if (opts.sinceSeconds) apiUrl += `&since_seconds=${opts.sinceSeconds}`
+  if (clusterId) apiUrl += `&cluster_id=${clusterId}`
+
+  const token = localStorage.getItem('token')
+  if (token) apiUrl += `&token=${token}`
+
+  if (process.env.NODE_ENV === 'development') {
+    return apiUrl
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://'
+  const host = window.location.host
+  return `${protocol}${host}${apiUrl}`
+}
+
 // Deployment APIs
 export const getDeployments = (namespace: string = 'default') => {
   const clusterId = getCurrentClusterId()
@@ -363,4 +389,61 @@ export const deleteSecret = (name: string, namespace: string = 'default') => {
     params.cluster_id = clusterId
   }
   return request.delete(`/api/v1/secrets/${name}`, { params })
+}
+
+// Event APIs
+// 查询事件，namespace 留空查所有命名空间；kind+name 可过滤某资源的事件
+export const getEvents = (namespace?: string, kind?: string, name?: string) => {
+  const clusterId = getCurrentClusterId()
+  const params: any = {}
+  if (namespace) params.namespace = namespace
+  if (kind) params.kind = kind
+  if (name) params.name = name
+  if (clusterId) params.cluster_id = clusterId
+  return request.get('/api/v1/events', { params })
+}
+
+// ============ 通用资源 API（任意 GVR）============
+export interface GVR {
+  group?: string
+  version: string
+  resource: string
+}
+
+const gvrParams = (gvr: GVR, extra: Record<string, any> = {}): Record<string, any> => {
+  const params: Record<string, any> = { version: gvr.version, resource: gvr.resource, ...extra }
+  if (gvr.group) params.group = gvr.group
+  return params
+}
+
+export const listResources = (gvr: GVR, namespace?: string) => {
+  const clusterId = getCurrentClusterId()
+  const params = gvrParams(gvr)
+  if (namespace) params.namespace = namespace
+  if (clusterId) params.cluster_id = clusterId
+  return request.get('/api/v1/resources', { params })
+}
+
+export const getResource = (gvr: GVR, namespace: string, name: string) => {
+  const clusterId = getCurrentClusterId()
+  const params = gvrParams(gvr)
+  if (namespace) params.namespace = namespace
+  if (clusterId) params.cluster_id = clusterId
+  return request.get(`/api/v1/resources/${name}`, { params })
+}
+
+export const deleteResource = (gvr: GVR, namespace: string, name: string) => {
+  const clusterId = getCurrentClusterId()
+  const params = gvrParams(gvr)
+  if (namespace) params.namespace = namespace
+  if (clusterId) params.cluster_id = clusterId
+  return request.delete(`/api/v1/resources/${name}`, { params })
+}
+
+// 应用 YAML（创建或更新任意资源）
+export const applyResource = (yaml: string) => {
+  const clusterId = getCurrentClusterId()
+  const params: any = {}
+  if (clusterId) params.cluster_id = clusterId
+  return request.post('/api/v1/resources/apply', { yaml }, { params })
 }

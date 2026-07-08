@@ -14,7 +14,15 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-var JWTSecret = []byte("your-secret-key-change-in-production")
+// jwtSecret JWT 签名密钥，通过 InitJWTSecret 注入，避免硬编码
+var jwtSecret = []byte("dev-only-jwt-secret-change-me")
+
+// InitJWTSecret 初始化 JWT 签名密钥。应在应用启动时调用。
+func InitJWTSecret(secret string) {
+	if secret != "" {
+		jwtSecret = []byte(secret)
+	}
+}
 
 // GenerateToken 生成JWT Token
 func GenerateToken(user User) (string, int64, error) {
@@ -32,7 +40,7 @@ func GenerateToken(user User) (string, int64, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(JWTSecret)
+	tokenString, err := token.SignedString(jwtSecret)
 	if err != nil {
 		return "", 0, err
 	}
@@ -43,7 +51,7 @@ func GenerateToken(user User) (string, int64, error) {
 // ParseToken 解析JWT Token
 func ParseToken(tokenString string) (*Claims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		return JWTSecret, nil
+		return jwtSecret, nil
 	})
 
 	if err != nil {

@@ -28,6 +28,8 @@ type ContainerInfo struct {
 	RestartCount int32         `json:"restart_count"`
 	State        string        `json:"state"`
 	Resources    ResourceUsage `json:"resources"`
+	CPUUsage     string        `json:"cpu_usage"`    // 实时 CPU 使用量（metrics-server）
+	MemoryUsage  string        `json:"memory_usage"` // 实时内存使用量
 }
 
 // ResourceUsage 资源使用情况
@@ -78,14 +80,23 @@ type ServicePort struct {
 // NodeInfo Node信息
 type NodeInfo struct {
 	K8sResource
-	Status         string            `json:"status"`
-	InternalIP     string            `json:"internal_ip"`
-	OSImage        string            `json:"os_image"`
-	KubeletVersion string            `json:"kubelet_version"`
-	ContainerRuntime string          `json:"container_runtime"`
-	Capacity       ResourceCapacity  `json:"capacity"`
-	Allocatable    ResourceCapacity  `json:"allocatable"`
-	Conditions     []NodeCondition   `json:"conditions"`
+	Status           string           `json:"status"`
+	InternalIP       string           `json:"internal_ip"`
+	OSImage          string           `json:"os_image"`
+	KubeletVersion   string           `json:"kubelet_version"`
+	ContainerRuntime string           `json:"container_runtime"`
+	Capacity         ResourceCapacity `json:"capacity"`
+	Allocatable      ResourceCapacity `json:"allocatable"`
+	Conditions       []NodeCondition  `json:"conditions"`
+	Usage            NodeUsage        `json:"usage"` // 实时使用率（需 metrics-server）
+}
+
+// NodeUsage 节点实时资源使用率
+type NodeUsage struct {
+	CPUPercent    float64 `json:"cpu_percent"`
+	MemoryPercent float64 `json:"memory_percent"`
+	CPUUsed       string  `json:"cpu_used"`
+	MemoryUsed    string  `json:"memory_used"`
 }
 
 // ResourceCapacity 资源容量

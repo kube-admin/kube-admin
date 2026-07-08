@@ -37,6 +37,8 @@ func ClusterMiddleware(defaultK8sClient *k8s.Client, k8sManager *k8s.Manager) gi
 			configMapService := service.NewConfigMapService(defaultK8sClient)
 			secretService := service.NewSecretService(defaultK8sClient)
 			dashboardService := service.NewDashboardService(defaultK8sClient)
+			eventService := service.NewEventService(defaultK8sClient)
+			resourceService := service.NewResourceService(defaultK8sClient)
 
 			c.Set("pod_service", podService)
 			c.Set("deployment_service", deploymentService)
@@ -46,6 +48,8 @@ func ClusterMiddleware(defaultK8sClient *k8s.Client, k8sManager *k8s.Manager) gi
 			c.Set("configmap_service", configMapService)
 			c.Set("secret_service", secretService)
 			c.Set("dashboard_service", dashboardService)
+			c.Set("event_service", eventService)
+			c.Set("resource_service", resourceService)
 
 			c.Next()
 			return
@@ -86,6 +90,8 @@ func ClusterMiddleware(defaultK8sClient *k8s.Client, k8sManager *k8s.Manager) gi
 		configMapService := service.NewConfigMapService(k8sClient)
 		secretService := service.NewSecretService(k8sClient)
 		dashboardService := service.NewDashboardService(k8sClient)
+		eventService := service.NewEventService(k8sClient)
+		resourceService := service.NewResourceService(k8sClient)
 
 		c.Set("pod_service", podService)
 		c.Set("deployment_service", deploymentService)
@@ -95,6 +101,8 @@ func ClusterMiddleware(defaultK8sClient *k8s.Client, k8sManager *k8s.Manager) gi
 		c.Set("configmap_service", configMapService)
 		c.Set("secret_service", secretService)
 		c.Set("dashboard_service", dashboardService)
+		c.Set("event_service", eventService)
+		c.Set("resource_service", resourceService)
 
 		c.Next()
 	}

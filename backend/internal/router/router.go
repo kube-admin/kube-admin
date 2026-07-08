@@ -17,14 +17,26 @@ func SetupRouter(defaultK8sClient *k8s.Client, k8sManager *k8s.Manager) *gin.Eng
 	r.Use(middleware.CORSMiddleware())
 	r.Use(middleware.ErrorHandler())
 
+	// 健康检查端点（无需认证，供 k8s liveness/readiness 探针使用）
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+	r.GET("/readyz", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	// 创建服务层
 	clusterService := service.NewClusterService()
 	userService := service.NewUserService()
+	auditService := service.NewAuditService()
 
 	// 创建API层
 	authAPI := api.NewAuthAPI(userService)
 	clusterAPI := api.NewClusterAPI(clusterService)
 	userAPI := api.NewUserAPI(userService)
+	auditAPI := api.NewAuditAPI(auditService)
+	eventAPI := api.NewEventAPI()
+	resourceAPI := api.NewResourceAPI()
 
 	// 公开路由
 	public := r.Group("/api/v1")
@@ -35,32 +47,52 @@ func SetupRouter(defaultK8sClient *k8s.Client, k8sManager *k8s.Manager) *gin.Eng
 	// 需要认证的路由
 	protected := r.Group("/api/v1")
 	protected.Use(middleware.AuthMiddleware())
+	protected.Use(middleware.AuditMiddleware())
 	{
-		// 用户信息
+		// 用户信息（所有登录用户可访问）
 		protected.GET("/auth/user", authAPI.GetUserInfo)
 
-		// 用户管理
-		protected.GET("/users", userAPI.ListUsers)
-		protected.GET("/users/:id", userAPI.GetUser)
-		protected.POST("/users", userAPI.CreateUser)
-		protected.PUT("/users/:id", userAPI.UpdateUser)
-		protected.DELETE("/users/:id", userAPI.DeleteUser)
+		// 用户管理（仅 admin）
+		adminGroup := protected.Group("")
+		adminGroup.Use(middleware.RequireRole("admin"))
+		{
+			adminGroup.GET("/users", userAPI.ListUsers)
+			adminGroup.GET("/users/:id", userAPI.GetUser)
+			adminGroup.POST("/users", userAPI.CreateUser)
+			adminGroup.PUT("/users/:id", userAPI.UpdateUser)
+			adminGroup.DELETE("/users/:id", userAPI.DeleteUser)
 
-		// 集群管理
-		protected.GET("/clusters", clusterAPI.ListClusters)
-		protected.GET("/clusters/:id", clusterAPI.GetCluster)
-		protected.POST("/clusters", clusterAPI.CreateCluster)
-		protected.PUT("/clusters/:id", clusterAPI.UpdateCluster)
-		protected.DELETE("/clusters/:id", clusterAPI.DeleteCluster)
-		protected.POST("/clusters/test-connection", clusterAPI.TestConnection)
+			// 集群管理（仅 admin）
+			adminGroup.GET("/clusters", clusterAPI.ListClusters)
+			adminGroup.GET("/clusters/:id", clusterAPI.GetCluster)
+			adminGroup.POST("/clusters", clusterAPI.CreateCluster)
+			adminGroup.PUT("/clusters/:id", clusterAPI.UpdateCluster)
+			adminGroup.DELETE("/clusters/:id", clusterAPI.DeleteCluster)
+			adminGroup.POST("/clusters/test-connection", clusterAPI.TestConnection)
+			adminGroup.POST("/clusters/:id/test-connection", clusterAPI.TestConnectionByID)
+
+			// 审计日志查询（仅 admin）
+			adminGroup.GET("/audit/logs", auditAPI.ListAuditLogs)
+		}
 
 		// 创建需要集群参数的API组
 		k8sGroup := protected.Group("")
+		k8sGroup.Use(middleware.WriteAuth()) // 写操作需 admin/operator/user 角色
 		k8sGroup.Use(middleware.ClusterMiddleware(defaultK8sClient, k8sManager))
 		{
 			// Dashboard
 			dashboardAPI := api.NewDashboardAPI(nil) // 将在中间件中注入正确的客户端
 			k8sGroup.GET("/dashboard/stats", dashboardAPI.GetStats)
+
+			// Event
+			k8sGroup.GET("/events", eventAPI.ListEvents)
+
+			// 通用资源管理（任意 GVR：list/get/delete/apply/patch）
+			k8sGroup.GET("/resources", resourceAPI.List)
+			k8sGroup.GET("/resources/:name", resourceAPI.Get)
+			k8sGroup.DELETE("/resources/:name", resourceAPI.Delete)
+			k8sGroup.POST("/resources/apply", resourceAPI.Apply)
+			k8sGroup.PATCH("/resources/:name", resourceAPI.Patch)
 
 			// Namespace
 			namespaceAPI := api.NewNamespaceAPI(nil) // 将在中间件中注入正确的客户端
@@ -79,6 +111,7 @@ func SetupRouter(defaultK8sClient *k8s.Client, k8sManager *k8s.Manager) *gin.Eng
 			k8sGroup.GET("/pods/:name", podAPI.GetPod)
 			k8sGroup.DELETE("/pods/:name", podAPI.DeletePod)
 			k8sGroup.GET("/pods/:name/logs", podAPI.GetPodLogs)
+			k8sGroup.GET("/pods/:name/logs/stream", podAPI.LogsStream)
 			k8sGroup.POST("/pods/:name/exec", podAPI.ExecCommand)
 			k8sGroup.GET("/pods/:name/terminal", podAPI.ExecTerminal)
 			k8sGroup.POST("/pods/yaml", podAPI.CreatePodFromYaml)

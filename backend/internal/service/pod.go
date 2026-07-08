@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 
 	"github.com/gorilla/websocket"
 	"github.com/kube-admin/kube-admin/backend/internal/model"
@@ -28,16 +29,17 @@ func (s *PodService) GetK8sClient() *k8s.Client {
 	return s.k8sClient
 }
 
-// ListPods 获取Pod列表
+// ListPods 获取Pod列表（含容器实时使用率，需 metrics-server）
 func (s *PodService) ListPods(namespace string) ([]model.PodInfo, error) {
 	podList, err := s.k8sClient.ClientSet.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
 
+	metricsMap := podMetricsMap(s.k8sClient, namespace) // 优雅降级
 	var pods []model.PodInfo
-	for _, pod := range podList.Items {
-		pods = append(pods, s.convertPod(&pod))
+	for i := range podList.Items {
+		pods = append(pods, s.convertPod(&podList.Items[i], metricsMap))
 	}
 
 	return pods, nil
@@ -50,7 +52,8 @@ func (s *PodService) GetPod(namespace, name string) (*model.PodInfo, error) {
 		return nil, err
 	}
 
-	podInfo := s.convertPod(pod)
+	metricsMap := podMetricsMap(s.k8sClient, namespace)
+	podInfo := s.convertPod(pod, metricsMap)
 	return &podInfo, nil
 }
 
@@ -72,6 +75,46 @@ func (s *PodService) GetPodLogs(namespace, name, container string, tailLines int
 	}
 
 	return string(logs), nil
+}
+
+// StreamLogs 通过 WebSocket 实时流式传输 Pod 日志。
+// 支持 follow（持续跟踪）、previous（上一个容器）、tailLines、sinceSeconds。
+func (s *PodService) StreamLogs(namespace, name, container string, follow, previous bool, tailLines int64, sinceSeconds int64, wsConn *websocket.Conn) error {
+	opts := &corev1.PodLogOptions{
+		Container: container,
+		Follow:    follow,
+		Previous:  previous,
+	}
+	if tailLines > 0 {
+		opts.TailLines = &tailLines
+	}
+	if sinceSeconds > 0 {
+		opts.SinceSeconds = &sinceSeconds
+	}
+
+	req := s.k8sClient.ClientSet.CoreV1().Pods(namespace).GetLogs(name, opts)
+	stream, err := req.Stream(context.TODO())
+	if err != nil {
+		return fmt.Errorf("打开日志流失败: %v", err)
+	}
+	defer stream.Close()
+
+	// 持续读取日志流并转发到 WebSocket
+	buf := make([]byte, 4096)
+	for {
+		n, rerr := stream.Read(buf)
+		if n > 0 {
+			if werr := wsConn.WriteMessage(websocket.TextMessage, buf[:n]); werr != nil {
+				return werr
+			}
+		}
+		if rerr != nil {
+			if rerr == io.EOF {
+				return nil
+			}
+			return rerr
+		}
+	}
 }
 
 // ExecCommand 在Pod中执行命令
@@ -199,8 +242,8 @@ func (w *wsStreamHandler) Close() error {
 	return w.conn.Close()
 }
 
-// convertPod 转换Pod对象
-func (s *PodService) convertPod(pod *corev1.Pod) model.PodInfo {
+// convertPod 转换Pod对象。metricsMap 为该 namespace 的 pod metrics 映射，可为 nil。
+func (s *PodService) convertPod(pod *corev1.Pod, metricsMap map[string]map[string]corev1.ResourceList) model.PodInfo {
 	podInfo := model.PodInfo{
 		K8sResource: model.K8sResource{
 			Name:              pod.Name,
@@ -213,6 +256,12 @@ func (s *PodService) convertPod(pod *corev1.Pod) model.PodInfo {
 		Status:   string(pod.Status.Phase),
 		PodIP:    pod.Status.PodIP,
 		NodeName: pod.Spec.NodeName,
+	}
+
+	// 容器 metrics 映射（按容器名取）
+	var podContainersMetrics map[string]corev1.ResourceList
+	if metricsMap != nil {
+		podContainersMetrics = metricsMap[pod.Name]
 	}
 
 	// 转换容器信息
@@ -258,6 +307,18 @@ func (s *PodService) convertPod(pod *corev1.Pod) model.PodInfo {
 			}
 			if memory, ok := container.Resources.Limits[corev1.ResourceMemory]; ok {
 				containerInfo.Resources.MemoryLimit = memory.String()
+			}
+		}
+
+		// 实时使用率（metrics-server 不可用时留空）
+		if podContainersMetrics != nil {
+			if cu, ok := podContainersMetrics[container.Name]; ok {
+				if cpu, ok := cu[corev1.ResourceCPU]; ok {
+					containerInfo.CPUUsage = cpu.String()
+				}
+				if mem, ok := cu[corev1.ResourceMemory]; ok {
+					containerInfo.MemoryUsage = mem.String()
+				}
 			}
 		}
 

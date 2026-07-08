@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/kube-admin/kube-admin/backend/config"
 	"github.com/kube-admin/kube-admin/backend/internal/model"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -50,45 +51,45 @@ func (m *Manager) GetClient(clusterID uint, cluster *model.Cluster) (*Client, er
 
 // createClient 根据集群信息创建K8s客户端
 func (m *Manager) createClient(cluster *model.Cluster) (*Client, error) {
-	var config *rest.Config
+	var restConfig *rest.Config
 	var err error
 
 	// 优先使用配置内容
 	if cluster.ConfigContent != "" {
-		clientConfig, err := clientcmd.NewClientConfigFromBytes([]byte(cluster.ConfigContent))
-		if err != nil {
-			return nil, fmt.Errorf("failed to build config from content: %v", err)
+		clientConfig, cerr := clientcmd.NewClientConfigFromBytes([]byte(cluster.ConfigContent))
+		if cerr != nil {
+			return nil, fmt.Errorf("failed to build config from content: %v", cerr)
 		}
 
-		config, err = clientConfig.ClientConfig()
+		restConfig, err = clientConfig.ClientConfig()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get client config: %v", err)
 		}
 	} else if cluster.ConfigPath != "" {
 		// 使用配置文件路径
-		config, err = clientcmd.BuildConfigFromFlags("", cluster.ConfigPath)
+		restConfig, err = clientcmd.BuildConfigFromFlags("", cluster.ConfigPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build config from file: %v", err)
 		}
 	} else if cluster.ServerURL != "" && cluster.Token != "" {
 		// 使用URL和Token
-		config = &rest.Config{
+		restConfig = &rest.Config{
 			Host:        cluster.ServerURL,
 			BearerToken: cluster.Token,
 			TLSClientConfig: rest.TLSClientConfig{
-				Insecure: true,
+				Insecure: config.App.TLSSkipVerify,
 			},
 		}
 	} else {
 		return nil, fmt.Errorf("no valid configuration found for cluster")
 	}
 
-	clientSet, err := kubernetes.NewForConfig(config)
+	clientSet, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes client: %v", err)
 	}
 
-	metricsClientSet, err := versioned.NewForConfig(config)
+	metricsClientSet, err := versioned.NewForConfig(restConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create metrics client: %v", err)
 	}
@@ -96,7 +97,7 @@ func (m *Manager) createClient(cluster *model.Cluster) (*Client, error) {
 	return &Client{
 		ClientSet:        clientSet,
 		MetricsClientSet: metricsClientSet,
-		Config:           config,
+		Config:           restConfig,
 	}, nil
 }
 

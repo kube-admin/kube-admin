@@ -26,7 +26,12 @@ export const deleteCluster = (id: number) => {
   return request.delete(`/api/v1/clusters/${id}`)
 }
 
-// 测试集群连接
+// 测试集群连接（基于请求中的明文凭据，用于未保存集群的预测试）
 export const testConnection = (data: TestConnectionRequest) => {
   return request.post<TestConnectionResponse>('/api/v1/clusters/test-connection', data)
+}
+
+// 基于已保存集群ID测试连接（后端使用解密后的凭据）
+export const testConnectionById = (id: number) => {
+  return request.post<TestConnectionResponse>(`/api/v1/clusters/${id}/test-connection`)
 }

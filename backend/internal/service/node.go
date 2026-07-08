@@ -19,16 +19,21 @@ func NewNodeService(k8sClient *k8s.Client) *NodeService {
 	return &NodeService{k8sClient: k8sClient}
 }
 
-// ListNodes 获取Node列表
+// ListNodes 获取Node列表（含实时使用率，需 metrics-server）
 func (s *NodeService) ListNodes() ([]model.NodeInfo, error) {
 	nodeList, err := s.k8sClient.ClientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
 
-	var nodes []model.NodeInfo
-	for _, node := range nodeList.Items {
-		nodes = append(nodes, s.convertNode(&node))
+	metricsMap := nodeMetricsMap(s.k8sClient) // 优雅降级：nil 时不填充
+	nodes := make([]model.NodeInfo, 0, len(nodeList.Items))
+	for i := range nodeList.Items {
+		info := s.convertNode(&nodeList.Items[i])
+		if usage, ok := metricsMap[nodeList.Items[i].Name]; ok {
+			fillNodeUsage(&info, usage, &nodeList.Items[i])
+		}
+		nodes = append(nodes, info)
 	}
 
 	return nodes, nil
@@ -41,8 +46,28 @@ func (s *NodeService) GetNode(name string) (*model.NodeInfo, error) {
 		return nil, err
 	}
 
-	nodeInfo := s.convertNode(node)
-	return &nodeInfo, nil
+	info := s.convertNode(node)
+	// 单节点也尝试填充使用率
+	metricsMap := nodeMetricsMap(s.k8sClient)
+	if usage, ok := metricsMap[node.Name]; ok {
+		fillNodeUsage(&info, usage, node)
+	}
+	return &info, nil
+}
+
+// fillNodeUsage 根据节点 metrics 与 allocatable 计算使用率并填充到 NodeInfo
+func fillNodeUsage(info *model.NodeInfo, usage corev1.ResourceList, node *corev1.Node) {
+	cpuUsed := usage[corev1.ResourceCPU]
+	memUsed := usage[corev1.ResourceMemory]
+	cpuAlloc := node.Status.Allocatable[corev1.ResourceCPU]
+	memAlloc := node.Status.Allocatable[corev1.ResourceMemory]
+
+	info.Usage = model.NodeUsage{
+		CPUPercent:    calcPercent(cpuUsed, cpuAlloc),
+		MemoryPercent: calcPercent(memUsed, memAlloc),
+		CPUUsed:       cpuUsed.String(),
+		MemoryUsed:    memUsed.String(),
+	}
 }
 
 // convertNode 转换Node对象

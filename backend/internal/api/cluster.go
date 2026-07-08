@@ -39,7 +39,7 @@ func (a *ClusterAPI) GetCluster(c *gin.Context) {
 		return
 	}
 
-	cluster, err := a.clusterService.GetCluster(uint(id))
+	cluster, err := a.clusterService.GetClusterResponse(uint(id))
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.ErrorResponse(404, "Cluster not found"))
 		return
@@ -98,15 +98,12 @@ func (a *ClusterAPI) UpdateCluster(c *gin.Context) {
 		return
 	}
 
-	// 验证至少提供了一种连接方式
-	if req.ConfigContent == "" && req.ConfigPath == "" && (req.ServerURL == "" || req.Token == "") {
-		c.JSON(http.StatusBadRequest, model.ErrorResponse(400, "必须提供至少一种连接方式：1. kubeconfig内容 2. kubeconfig文件路径 3. 服务器地址和Token"))
-		return
-	}
+	// 更新时允许仅修改名称等信息；Token/ConfigContent 留空表示保留原值，
+	// 因此不强制要求请求中携带连接方式。具体校验由 service 层完成。
 
 	cluster, err := a.clusterService.UpdateCluster(uint(id), req)
 	if err != nil {
-		c.JSON(http.StatusNotFound, model.ErrorResponse(404, "Cluster not found"))
+		c.JSON(http.StatusBadRequest, model.ErrorResponse(400, err.Error()))
 		return
 	}
 
@@ -130,7 +127,7 @@ func (a *ClusterAPI) DeleteCluster(c *gin.Context) {
 	c.JSON(http.StatusOK, model.SuccessResponse(gin.H{"message": "Cluster deleted successfully"}))
 }
 
-// TestConnection 测试集群连接
+// TestConnection 测试集群连接（基于请求中的明文凭据，用于未保存集群的预测试）
 func (a *ClusterAPI) TestConnection(c *gin.Context) {
 	var req model.TestConnectionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -147,6 +144,24 @@ func (a *ClusterAPI) TestConnection(c *gin.Context) {
 	result, err := a.clusterService.TestConnection(req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.ErrorResponse(500, err.Error()))
+		return
+	}
+
+	c.JSON(http.StatusOK, model.SuccessResponse(result))
+}
+
+// TestConnectionByID 基于已保存集群ID测试连接（用解密后的凭据）
+func (a *ClusterAPI) TestConnectionByID(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse(400, "Invalid cluster ID"))
+		return
+	}
+
+	result, err := a.clusterService.TestConnectionByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.ErrorResponse(404, err.Error()))
 		return
 	}
 

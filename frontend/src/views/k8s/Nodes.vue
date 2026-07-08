@@ -20,19 +20,27 @@
         <el-table-column prop="internal_ip" label="内部IP" width="150" />
         <el-table-column prop="os_image" label="操作系统" width="200" />
         <el-table-column prop="kubelet_version" label="Kubelet版本" width="150" />
-        <el-table-column label="CPU" width="120">
+        <el-table-column label="CPU 使用率" width="180">
           <template #default="scope">
-            <div>
-              <div style="font-size: 12px; color: #909399">容量: {{ scope.row.capacity?.cpu }}</div>
-              <div style="font-size: 12px; color: #67C23A">可用: {{ scope.row.allocatable?.cpu }}</div>
+            <el-progress
+              :percentage="Math.round(scope.row.usage?.cpu_percent || 0)"
+              :color="getProgressColor(scope.row.usage?.cpu_percent || 0)"
+              :stroke-width="10"
+            />
+            <div style="font-size: 12px; color: #909399; margin-top: 2px">
+              {{ scope.row.usage?.cpu_used || '-' }} / {{ scope.row.allocatable?.cpu }}
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="内存" width="150">
+        <el-table-column label="内存使用率" width="180">
           <template #default="scope">
-            <div>
-              <div style="font-size: 12px; color: #909399">容量: {{ formatMemory(scope.row.capacity?.memory) }}</div>
-              <div style="font-size: 12px; color: #67C23A">可用: {{ formatMemory(scope.row.allocatable?.memory) }}</div>
+            <el-progress
+              :percentage="Math.round(scope.row.usage?.memory_percent || 0)"
+              :color="getProgressColor(scope.row.usage?.memory_percent || 0)"
+              :stroke-width="10"
+            />
+            <div style="font-size: 12px; color: #909399; margin-top: 2px">
+              {{ formatMemory(scope.row.usage?.memory_used) }} / {{ formatMemory(scope.row.allocatable?.memory) }}
             </div>
           </template>
         </el-table-column>
@@ -64,41 +72,39 @@
           </el-descriptions>
         </el-tab-pane>
 
-        <el-tab-pane label="资源容量" name="resources">
+        <el-tab-pane label="资源使用" name="resources">
           <el-row :gutter="20">
             <el-col :span="8">
               <el-card>
-                <template #header>CPU</template>
-                <el-progress 
-                  :percentage="getCPUUsagePercent()" 
+                <template #header>CPU 实时使用率</template>
+                <el-progress
+                  :percentage="getCPUUsagePercent()"
                   :color="getProgressColor(getCPUUsagePercent())"
                 />
                 <div style="margin-top: 10px; text-align: center">
-                  <div>总容量: {{ currentNode?.capacity?.cpu }}</div>
+                  <div>已用: {{ currentNode?.usage?.cpu_used || '-' }}</div>
                   <div>可分配: {{ currentNode?.allocatable?.cpu }}</div>
+                  <div>总容量: {{ currentNode?.capacity?.cpu }}</div>
                 </div>
               </el-card>
             </el-col>
             <el-col :span="8">
               <el-card>
-                <template #header>内存</template>
-                <el-progress 
-                  :percentage="getMemoryUsagePercent()" 
+                <template #header>内存实时使用率</template>
+                <el-progress
+                  :percentage="getMemoryUsagePercent()"
                   :color="getProgressColor(getMemoryUsagePercent())"
                 />
                 <div style="margin-top: 10px; text-align: center">
-                  <div>总容量: {{ formatMemory(currentNode?.capacity?.memory) }}</div>
+                  <div>已用: {{ formatMemory(currentNode?.usage?.memory_used) }}</div>
                   <div>可分配: {{ formatMemory(currentNode?.allocatable?.memory) }}</div>
+                  <div>总容量: {{ formatMemory(currentNode?.capacity?.memory) }}</div>
                 </div>
               </el-card>
             </el-col>
             <el-col :span="8">
               <el-card>
                 <template #header>Pods</template>
-                <el-progress 
-                  :percentage="50" 
-                  :color="getProgressColor(50)"
-                />
                 <div style="margin-top: 10px; text-align: center">
                   <div>总容量: {{ currentNode?.capacity?.pods }}</div>
                   <div>可分配: {{ currentNode?.allocatable?.pods }}</div>
@@ -106,6 +112,13 @@
               </el-card>
             </el-col>
           </el-row>
+          <el-alert
+            v-if="!currentNode?.usage?.cpu_used && !currentNode?.usage?.memory_used"
+            title="未检测到实时使用率数据，请确认集群已安装 metrics-server"
+            type="warning"
+            :closable="false"
+            style="margin-top: 15px"
+          />
         </el-tab-pane>
 
         <el-tab-pane label="节点条件" name="conditions">
@@ -183,34 +196,30 @@ const getStatusType = (status: string) => {
 
 const formatMemory = (memory: string) => {
   if (!memory) return '-'
-  const match = memory.match(/(\d+)Ki/)
-  if (match) {
-    const kb = parseInt(match[1])
-    const gb = (kb / 1024 / 1024).toFixed(2)
-    return `${gb} GB`
+  // 支持 Ki/Mi/Gi/Ti 后缀与纯数字（字节），统一换算为 GB
+  const match = memory.match(/^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti|Pi|Ei)?$/)
+  if (!match) return memory
+  const num = parseFloat(match[1])
+  const unit = match[2] || ''
+  const toGB: Record<string, number> = {
+    '': num / 1024 / 1024 / 1024,
+    Ki: num / 1024 / 1024,
+    Mi: num / 1024,
+    Gi: num,
+    Ti: num * 1024,
+    Pi: num * 1024 * 1024,
+    Ei: num * 1024 * 1024 * 1024
   }
-  return memory
+  return `${toGB[unit].toFixed(2)} GB`
 }
 
 const getCPUUsagePercent = () => {
-  if (!currentNode.value) return 0
-  const capacity = parseFloat(currentNode.value.capacity?.cpu || '0')
-  const allocatable = parseFloat(currentNode.value.allocatable?.cpu || '0')
-  if (capacity === 0) return 0
-  return Math.round((allocatable / capacity) * 100)
+  // 优先使用 metrics-server 实时使用率
+  return Math.round(currentNode.value?.usage?.cpu_percent || 0)
 }
 
 const getMemoryUsagePercent = () => {
-  if (!currentNode.value) return 0
-  const capacity = parseMemory(currentNode.value.capacity?.memory || '0')
-  const allocatable = parseMemory(currentNode.value.allocatable?.memory || '0')
-  if (capacity === 0) return 0
-  return Math.round((allocatable / capacity) * 100)
-}
-
-const parseMemory = (memory: string) => {
-  const match = memory.match(/(\d+)Ki/)
-  return match ? parseInt(match[1]) : 0
+  return Math.round(currentNode.value?.usage?.memory_percent || 0)
 }
 
 const getProgressColor = (percent: number) => {

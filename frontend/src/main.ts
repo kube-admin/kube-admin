@@ -5,6 +5,8 @@ import App from './App.vue'
 import router from './router'
 import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import locale from 'element-plus/es/locale/lang/zh-cn'
+import i18n from './locales'
+import { permission } from './directives/permission'
 
 import 'element-plus/dist/index.css'
 import 'element-plus/theme-chalk/dark/css-vars.css'
@@ -17,5 +19,9 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(ElementPlus, { locale: locale })
 app.use(createPinia())
 app.use(router)
+app.use(i18n)
+
+// 自定义指令：按角色控制元素显隐
+app.directive('permission', permission)
 
 app.mount('#app')

@@ -46,23 +46,27 @@
       </el-table>
     </el-card>
 
-    <!-- 日志对话框 -->
-    <el-dialog v-model="logDialogVisible" title="Pod 日志" width="70%">
-      <el-select v-model="selectedContainer" placeholder="选择容器" style="margin-bottom: 10px">
-        <el-option
-          v-for="container in currentPodContainers"
-          :key="container.name"
-          :label="container.name"
-          :value="container.name"
-        />
-      </el-select>
-      <el-input
-        v-model="logs"
-        type="textarea"
-        :rows="20"
-        readonly
-        style="font-family: monospace"
-      />
+    <!-- 日志对话框（WebSocket 实时流） -->
+    <el-dialog
+      v-model="logDialogVisible"
+      title="Pod 日志（实时流）"
+      width="80%"
+      :destroy-on-close="true"
+      @close="closeLogStream"
+    >
+      <div class="log-toolbar">
+        <el-select v-model="selectedContainer" placeholder="容器" size="small" style="width: 180px" @change="restartLogStream">
+          <el-option v-for="container in currentPodContainers" :key="container.name" :label="container.name" :value="container.name" />
+        </el-select>
+        <el-switch v-model="logFollow" active-text="实时跟踪" @change="restartLogStream" />
+        <el-switch v-model="logPrevious" active-text="上个容器" @change="restartLogStream" />
+        <el-input-number v-model="logTailLines" :min="100" :max="100000" :step="500" size="small" style="width: 150px" />
+        <el-input v-model="logSearch" placeholder="搜索过滤" size="small" clearable style="width: 180px" />
+        <el-button size="small" @click="logPaused = !logPaused">{{ logPaused ? '继续' : '暂停' }}</el-button>
+        <el-button size="small" @click="downloadLogs">下载</el-button>
+        <el-button size="small" @click="logs = ''">清空</el-button>
+      </div>
+      <pre ref="logBoxRef" class="log-box">{{ filteredLogs || '(等待日志...)' }}</pre>
     </el-dialog>
 
     <!-- 终端对话框 -->
@@ -104,9 +108,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getPods, deletePod, getPodLogs, getNamespaces, createPodFromYaml, getPodTerminalUrl } from '@/apis/k8s'
+import { getPods, deletePod, getPodLogs, getPodLogsStreamUrl, getNamespaces, createPodFromYaml, getPodTerminalUrl } from '@/apis/k8s'
 import { useNamespaceStore } from '@/stores/namespace'
 import type { AxiosResponse } from 'axios'
 import type { Result } from '@/apis/client/request'
@@ -177,30 +181,96 @@ const handleDelete = async (pod: any) => {
   }
 }
 
-const showLogs = async (pod: any) => {
+// ====== 日志流（WebSocket）======
+let logWs: WebSocket | null = null
+const logFollow = ref(true)
+const logPrevious = ref(false)
+const logTailLines = ref(1000)
+const logSearch = ref('')
+const logPaused = ref(false)
+const logBoxRef = ref<HTMLPreElement | null>(null)
+
+// 搜索过滤后的日志
+const filteredLogs = computed(() => {
+  if (!logSearch.value) return logs.value
+  return logs.value
+    .split('\n')
+    .filter((l: string) => l.includes(logSearch.value))
+    .join('\n')
+})
+
+const showLogs = (pod: any) => {
   currentPod.value = pod
   currentPodContainers.value = pod.containers || []
   if (currentPodContainers.value.length > 0) {
     selectedContainer.value = currentPodContainers.value[0].name
   }
+  logs.value = ''
   logDialogVisible.value = true
-  await fetchLogs()
+  nextTick(() => connectLogStream())
 }
 
-const fetchLogs = async () => {
+// 连接日志流 WebSocket
+const connectLogStream = () => {
   if (!currentPod.value || !selectedContainer.value) return
+  if (logWs) {
+    logWs.close()
+    logWs = null
+  }
+  const url = getPodLogsStreamUrl(currentPod.value.name, currentPod.value.namespace, selectedContainer.value, {
+    follow: logFollow.value,
+    previous: logPrevious.value,
+    tailLines: logTailLines.value
+  })
   try {
-    const res: AxiosResponse<Result<{ logs: string }>> = await getPodLogs(
-      currentPod.value.name,
-      currentPod.value.namespace,
-      selectedContainer.value,
-      100
-    )
-    logs.value = res.data.data?.logs || ''
-  } catch (error) {
-    ElMessage.error('获取日志失败')
+    logWs = new WebSocket(url)
+    logWs.onmessage = (ev) => {
+      if (logPaused.value) return
+      logs.value += ev.data
+      scrollToLogBottom()
+    }
+    logWs.onerror = () => {
+      ElMessage.error('日志流连接错误')
+    }
+  } catch (e: any) {
+    ElMessage.error('连接日志流失败: ' + (e?.message || ''))
   }
 }
+
+// 参数变更后重新连接
+const restartLogStream = () => {
+  logs.value = ''
+  connectLogStream()
+}
+
+const closeLogStream = () => {
+  if (logWs) {
+    logWs.close()
+    logWs = null
+  }
+}
+
+const scrollToLogBottom = () => {
+  nextTick(() => {
+    if (logBoxRef.value && logFollow.value) {
+      logBoxRef.value.scrollTop = logBoxRef.value.scrollHeight
+    }
+  })
+}
+
+const downloadLogs = () => {
+  const blob = new Blob([logs.value], { type: 'text/plain;charset=utf-8' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `${currentPod.value?.name}-${selectedContainer.value}.log`
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
+// 组件卸载时关闭日志流，避免连接泄漏
+onUnmounted(() => {
+  closeLogStream()
+})
 
 // 显示终端对话框
 const showTerminal = (pod: any) => {
@@ -540,6 +610,29 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.log-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.log-box {
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 10px;
+  border-radius: 4px;
+  height: 60vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 0;
 }
 
 .terminal-container {

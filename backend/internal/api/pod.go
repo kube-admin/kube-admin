@@ -119,6 +119,40 @@ func (a *PodAPI) GetPodLogs(c *gin.Context) {
 	c.JSON(http.StatusOK, model.SuccessResponse(map[string]string{"logs": logs}))
 }
 
+// LogsStream WebSocket 流式日志接口，支持 follow/previous/tail_lines/since_seconds
+func (a *PodAPI) LogsStream(c *gin.Context) {
+	podService, exists := c.Get("pod_service")
+	if !exists {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse(500, "服务未初始化"))
+		return
+	}
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	wsConn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer wsConn.Close()
+
+	namespace := c.DefaultQuery("namespace", "default")
+	name := c.Param("name")
+	container := c.Query("container")
+	follow := c.Query("follow") == "true"
+	previous := c.Query("previous") == "true"
+	tailLines, _ := strconv.ParseInt(c.DefaultQuery("tail_lines", "1000"), 10, 64)
+	sinceSeconds, _ := strconv.ParseInt(c.DefaultQuery("since_seconds", "0"), 10, 64)
+
+	err = podService.(*service.PodService).StreamLogs(namespace, name, container, follow, previous, tailLines, sinceSeconds, wsConn)
+	if err != nil {
+		if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			log.Printf("logs stream error: %v", err)
+			wsConn.WriteMessage(websocket.TextMessage, []byte("Error: "+err.Error()))
+		}
+	}
+}
+
 // ExecCommand 在Pod中执行命令
 func (a *PodAPI) ExecCommand(c *gin.Context) {
 	// 从上下文中获取服务实例

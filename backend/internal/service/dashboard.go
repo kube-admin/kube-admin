@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+
 	"github.com/kube-admin/kube-admin/backend/pkg/k8s"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -26,6 +29,7 @@ type DashboardStats struct {
 	ConfigMapCount  int            `json:"configmap_count"`
 	SecretCount     int            `json:"secret_count"`
 	PodStatusStats  PodStatusStats `json:"pod_status_stats"`
+	ClusterUsage    ClusterUsage   `json:"cluster_usage"` // 集群资源实时使用率
 }
 
 // PodStatusStats Pod状态统计
@@ -37,17 +41,28 @@ type PodStatusStats struct {
 	Unknown   int `json:"unknown"`
 }
 
+// ClusterUsage 集群整体资源使用率（基于 node metrics 聚合）
+type ClusterUsage struct {
+	CPUPercent     float64 `json:"cpu_percent"`
+	MemoryPercent  float64 `json:"memory_percent"`
+	CPUUsed        string  `json:"cpu_used"`
+	CPUCapacity    string  `json:"cpu_capacity"`
+	MemoryUsed     string  `json:"memory_used"`
+	MemoryCapacity string  `json:"memory_capacity"`
+}
+
 // GetDashboardStats 获取Dashboard统计数据
 func (s *DashboardService) GetDashboardStats() (*DashboardStats, error) {
 	stats := &DashboardStats{}
 
-	// 统计节点数
+	// 节点列表（复用：计数 + 使用率聚合）
 	nodeList, err := s.k8sClient.ClientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err == nil {
 		stats.NodeCount = len(nodeList.Items)
+		s.fillClusterUsage(stats, nodeList)
 	}
 
-	// 统计命名空间数
+	// 命名空间数
 	nsList, err := s.k8sClient.ClientSet.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
 	if err == nil {
 		stats.NamespaceCount = len(nsList.Items)
@@ -57,7 +72,6 @@ func (s *DashboardService) GetDashboardStats() (*DashboardStats, error) {
 	podList, err := s.k8sClient.ClientSet.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
 	if err == nil {
 		stats.PodCount = len(podList.Items)
-		// 统计Pod状态
 		for _, pod := range podList.Items {
 			switch pod.Status.Phase {
 			case "Running":
@@ -95,4 +109,29 @@ func (s *DashboardService) GetDashboardStats() (*DashboardStats, error) {
 	}
 
 	return stats, nil
+}
+
+// fillClusterUsage 聚合所有节点的实时资源使用率。metrics-server 不可用时使用率为 0。
+func (s *DashboardService) fillClusterUsage(stats *DashboardStats, nodeList *corev1.NodeList) {
+	metricsMap := nodeMetricsMap(s.k8sClient)
+
+	var usedCPU, allocCPU, usedMem, allocMem resource.Quantity
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		allocCPU.Add(node.Status.Allocatable[corev1.ResourceCPU])
+		allocMem.Add(node.Status.Allocatable[corev1.ResourceMemory])
+		if usage, ok := metricsMap[node.Name]; ok {
+			usedCPU.Add(usage[corev1.ResourceCPU])
+			usedMem.Add(usage[corev1.ResourceMemory])
+		}
+	}
+
+	stats.ClusterUsage = ClusterUsage{
+		CPUPercent:     calcPercent(usedCPU, allocCPU),
+		MemoryPercent:  calcPercent(usedMem, allocMem),
+		CPUUsed:        usedCPU.String(),
+		CPUCapacity:    allocCPU.String(),
+		MemoryUsed:     usedMem.String(),
+		MemoryCapacity: allocMem.String(),
+	}
 }
