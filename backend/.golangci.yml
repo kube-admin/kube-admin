@@ -1,0 +1,27 @@
+run:
+  timeout: 5m
+  go: "1.24"
+
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - gofmt
+
+linters-settings:
+  errcheck:
+    check-type-assertions: false
+
+issues:
+  exclude-rules:
+    # 测试文件允许使用未处理的错误
+    - path: _test\.go
+      linters:
+        - errcheck
+  max-issues-per-linter: 0
+  max-same-issues: 0
