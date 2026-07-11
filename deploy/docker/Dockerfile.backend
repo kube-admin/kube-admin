@@ -1,0 +1,23 @@
+# 后端镜像：Go 1.24（与 go.mod 对齐），纯 Go sqlite 驱动（glebarez/sqlite），无需 CGO。
+# 构建上下文为仓库根目录（CI / docker-compose 均 context: .）。
+FROM golang:1.24-alpine AS builder
+WORKDIR /app
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+COPY backend/ ./
+# 多架构交叉编译：buildx 注入 TARGETOS/TARGETARCH，Go 原生交叉编译无需 QEMU，CI 更快
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-s -w" -trimpath -o main ./cmd/main.go
+
+# 运行镜像：alpine + ca-certificates（访问 HTTPS 集群必需）+ wget（compose healthcheck）
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates wget
+# 非 root 运行：本项目处理 k8s 凭据，容器逃逸后避免提权
+RUN addgroup -S app && adduser -S -G app -h /app app
+WORKDIR /app
+COPY --from=builder /app/main ./
+RUN mkdir -p /data && chown -R app:app /app /data
+USER app
+EXPOSE 8080
+ENTRYPOINT ["./main"]

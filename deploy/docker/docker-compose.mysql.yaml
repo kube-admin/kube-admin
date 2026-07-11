@@ -1,0 +1,24 @@
+# 叠加 compose：用于验证多数据库（MySQL）。
+# 与 docker-compose.yaml 一起使用：
+#   docker compose -f docker-compose.yaml -f docker-compose.mysql.yaml --env-file ../.env up -d
+# 并在 .env 设置：
+#   DB_DRIVER=mysql
+#   DB_DSN=root:root@tcp(mysql:3306)/kubeadm?charset=utf8mb4&parseTime=True&loc=Local
+services:
+  mysql:
+    image: mysql:8
+    container_name: kube-admin-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: kubeadm
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - kube-admin
+
+volumes:
+  mysql-data:
+    driver: local

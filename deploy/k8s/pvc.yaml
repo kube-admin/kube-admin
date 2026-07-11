@@ -1,0 +1,12 @@
+# SQLite 数据持久化（DB_DRIVER=sqlite 时使用）。
+# 使用外部 MySQL/PostgreSQL 时可删除本文件及 backend Deployment 的 volume 挂载。
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kube-admin-data
+  namespace: kube-admin
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi

@@ -1,0 +1,14 @@
+# Service 名称必须为 backend：前端 nginx.conf 反代 http://backend:8080 依赖此 DNS 名。
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: kube-admin
+spec:
+  type: ClusterIP
+  selector:
+    app: kube-admin-backend
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP

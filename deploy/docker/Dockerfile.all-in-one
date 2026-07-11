@@ -1,0 +1,40 @@
+# 单镜像（all-in-one）：后端用 go:embed 内嵌前端 dist，一个镜像一个容器开箱即用。
+# 构建上下文为仓库根（context: .），与 Dockerfile.backend/.frontend 一致。
+# 三阶段：node 构前端 -> go:embed 进后端（-tags embed）-> alpine 非 root 运行。
+#
+# 产物：docker run -p 8080:8080 -e JWT_SECRET=... -e ENCRYPT_KEY=... kube-admin
+# 生产/HA 仍推荐双镜像（Dockerfile.backend + .frontend + nginx 反代），可独立扩缩容。
+
+# 阶段 1：构建前端
+FROM node:20-alpine AS frontend
+WORKDIR /app
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build   # 产物在 /app/dist
+
+# 阶段 2：构建后端（内嵌前端）
+FROM golang:1.24-alpine AS backend
+WORKDIR /app
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+COPY backend/ ./
+# 前端构建产物落入 embed 目录，-tags embed 触发 //go:embed all:dist
+COPY --from=frontend /app/dist ./internal/web/dist
+# 多架构交叉编译：buildx 注入 TARGETOS/TARGETARCH，Go 原生交叉编译免 QEMU
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -tags embed -ldflags="-s -w" -trimpath -o main ./cmd/main.go
+
+# 阶段 3：运行（非 root）
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates wget
+RUN addgroup -S app && adduser -S -G app -h /app app
+WORKDIR /app
+COPY --from=backend /app/main ./
+RUN mkdir -p /data && chown -R app:app /app /data
+USER app
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --retries=5 --start-period=10s \
+  CMD wget -qO- http://localhost:8080/healthz || exit 1
+ENTRYPOINT ["./main"]

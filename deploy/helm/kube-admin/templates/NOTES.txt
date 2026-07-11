@@ -1,0 +1,16 @@
+Kube Admin 已部署到 namespace: {{ .Release.Namespace }}
+
+默认管理员：admin / admin123（请立即在界面修改密码）
+
+访问方式：
+{{- if .Values.ingress.enabled }}
+  Ingress:  http://{{ .Values.ingress.host }}
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/kube-admin-frontend 8080:80
+  然后访问 http://localhost:8080
+{{- end }}
+
+提醒：
+  - 确认密钥已用强随机值（如：--set secrets.jwtSecret=$(openssl rand -base64 32)）
+  - 集群内部署后默认集群通过 ServiceAccount 自动接入；管理外部集群请在界面「集群管理」添加
+  - 切换外部数据库：set database.driver=mysql|postgres，并填 secrets.dbDSN，即可多副本

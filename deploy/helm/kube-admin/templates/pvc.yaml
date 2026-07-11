@@ -1,0 +1,17 @@
+{{- if and .Values.database.persistence.enabled (eq .Values.database.driver "sqlite") }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kube-admin-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{ include "kube-admin.labels" . | indent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.database.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.database.persistence.size | quote }}
+{{- end }}

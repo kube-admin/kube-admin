@@ -1,0 +1,25 @@
+# 只把构建必需文件发送给 Docker daemon，减小上下文、避免泄露本地数据/密钥
+**/node_modules
+**/dist
+**/.vitepress/cache
+**/.vitepress/dist
+**/.git
+**/data
+**/*.db
+**/*.sqlite*
+**/bin
+**/.cache
+**/.DS_Store
+
+# 环境变量与密钥（.env.example 保留以备参考，但镜像构建不需要）
+.env
+.env.*
+!.env.example
+
+# 文档 / 工程化文件（不进镜像）
+docs/
+docs-site/
+.github/
+.claude/
+deploy/
+**/*.md

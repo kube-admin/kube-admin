@@ -1,0 +1,59 @@
+# 单副本 + Recreate：SQLite 单写者约束。切换外部 DB（DB_DRIVER=mysql/postgres）后
+# 可改 RollingUpdate 并调大 replicas。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-admin-backend
+  namespace: kube-admin
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: kube-admin-backend
+  template:
+    metadata:
+      labels:
+        app: kube-admin-backend
+    spec:
+      serviceAccountName: kube-admin-sa
+      terminationGracePeriodSeconds: 15   # ≥ 后端 10s 优雅关闭
+      containers:
+        - name: backend
+          image: ghcr.io/kube-admin/kube-admin-backend:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: GIN_MODE
+              value: "release"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: kube-admin-secret, key: jwt-secret }
+            - name: ENCRYPT_KEY
+              valueFrom:
+                secretKeyRef: { name: kube-admin-secret, key: encrypt-key }
+            - name: DB_DRIVER
+              value: "sqlite"          # 切外部 DB 改 mysql/postgres，并启用下方 DB_DSN
+            - name: DB_PATH
+              value: "/data/kubeadm.db"
+            # 外部数据库时改用（并去掉下方 volume 挂载与 PVC）：
+            # - name: DB_DSN
+            #   valueFrom:
+            #     secretKeyRef: { name: kube-admin-secret, key: db-dsn }
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: kube-admin-data }

@@ -1,0 +1,31 @@
+# 注意：通用资源浏览器（/resources，dynamic client）支持 apply/管理任意 GVR，
+# 因此最后一条 rules 采用宽口径 apiGroups:["*"] resources:["*"]。
+# 如禁用通用资源功能，可删除最后一条以收窄权限。
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kube-admin
+rules:
+  # 核心资源读
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "nodes", "namespaces", "services", "configmaps", "secrets", "events", "persistentvolumeclaims", "persistentvolumes", "serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+  # 工作负载读写（重启 / 扩缩容 / 删除需要写）
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "services", "configmaps", "secrets", "namespaces"]
+    verbs: ["create", "update", "patch", "delete"]
+  # 终端 / 日志流（子资源）
+  - apiGroups: [""]
+    resources: ["pods/exec", "pods/log"]
+    verbs: ["get", "create"]
+  # metrics（仪表盘监控）
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+  # 通用资源浏览器（dynamic client / apply 任意 GVR）—— 无法收窄
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

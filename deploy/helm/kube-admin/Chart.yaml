@@ -1,0 +1,14 @@
+apiVersion: v2
+name: kube-admin
+description: Kube Admin - 基于 Vue3 + Go 的多集群 Kubernetes 管理平台
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - dashboard
+  - admin
+  - multi-cluster
+home: https://github.com/kube-admin/kube-admin
+maintainers:
+  - name: kube-admin

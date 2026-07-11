@@ -1,0 +1,64 @@
+{{- /* 校验：多副本不可用 SQLite（单写者，多副本写冲突） */ -}}
+{{- if and (gt (int .Values.backend.replicas) 1) (eq .Values.database.driver "sqlite") -}}
+{{- fail (printf "backend.replicas=%v 但 database.driver=sqlite：SQLite 为单写者，多副本会写冲突。请设 database.driver=mysql|postgres 并配 secrets.dbDSN，或保持 replicas=1" .Values.backend.replicas) -}}
+{{- end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kube-admin-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+{{ include "kube-admin.labels" . | indent 4 }}
+spec:
+  replicas: {{ .Values.backend.replicas }}
+  strategy:
+    type: {{ .Values.backend.strategy }}
+  selector:
+    matchLabels:
+      app: kube-admin-backend
+  template:
+    metadata:
+      labels:
+        app: kube-admin-backend
+    spec:
+      serviceAccountName: {{ include "kube-admin.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: backend
+          image: "{{ .Values.image.backend.repository }}:{{ .Values.image.backend.tag }}"
+          imagePullPolicy: {{ .Values.image.backend.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - { name: GIN_MODE, value: "release" }
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: kube-admin-secret, key: jwt-secret }
+            - name: ENCRYPT_KEY
+              valueFrom:
+                secretKeyRef: { name: kube-admin-secret, key: encrypt-key }
+            - { name: DB_DRIVER, value: {{ .Values.database.driver | quote }} }
+            - { name: DB_PATH, value: {{ .Values.database.sqlitePath | quote }} }
+            {{- if ne .Values.database.driver "sqlite" }}
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef: { name: kube-admin-secret, key: db-dsn }
+            {{- end }}
+          {{- if and .Values.database.persistence.enabled (eq .Values.database.driver "sqlite") }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          {{- end }}
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 5
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      {{- if and .Values.database.persistence.enabled (eq .Values.database.driver "sqlite") }}
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: kube-admin-data }
+      {{- end }}
