@@ -1,0 +1,3 @@
+# 占位文件，保证 backend/internal/web/dist 目录在 git 中存在。
+# 实际前端产物由 all-in-one Dockerfile 构建时拷入（//go:embed all:dist）。
+# 本地普通构建不带 -tags embed，不会编译 embed.go，此目录内容无关。

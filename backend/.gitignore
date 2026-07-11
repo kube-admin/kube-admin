@@ -5,7 +5,7 @@
 *.so
 *.dylib
 bin/
-dist/
+/dist/   # 仅忽略 backend 根的构建产物；内嵌前端目录 internal/web/dist/ 需入库（.gitkeep）
 
 # Test binary
 *.test
