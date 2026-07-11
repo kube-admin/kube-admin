@@ -114,30 +114,31 @@ const fetchClusters = async () => {
     const response: any = await listClusters()
     clusters.value = response.data?.data || []
     
-    // 如果有集群数据，设置默认选中第一个
+    // 如果有集群数据
     if (clusters.value.length > 0) {
-      // 检查是否有之前保存的集群选择
-      const savedCluster = localStorage.getItem('currentCluster')
-      if (savedCluster) {
-        const cluster = JSON.parse(savedCluster)
-        // 检查保存的集群是否存在于当前集群列表中
-        const existingCluster = clusters.value.find(c => c.id === cluster.id)
-        if (existingCluster) {
-          currentClusterId.value = cluster.id
-          // 更新 store 中的集群 ID
-          namespaceStore.setCurrentClusterId(cluster.id)
+      // 优先保留已设置的集群（URL 状态化 init 或用户选择），避免覆盖
+      const storedId = namespaceStore.currentClusterId
+      if (storedId && clusters.value.find(c => c.id === storedId)) {
+        currentClusterId.value = storedId
+      } else {
+        // 回退到 localStorage 保存的集群
+        const savedCluster = localStorage.getItem('currentCluster')
+        if (savedCluster) {
+          const cluster = JSON.parse(savedCluster)
+          const existingCluster = clusters.value.find(c => c.id === cluster.id)
+          if (existingCluster) {
+            currentClusterId.value = cluster.id
+            namespaceStore.setCurrentClusterId(cluster.id)
+          } else {
+            currentClusterId.value = ''
+            namespaceStore.setCurrentClusterId(null)
+          }
         } else {
-          // 如果保存的集群不存在，清空选择
           currentClusterId.value = ''
           namespaceStore.setCurrentClusterId(null)
         }
-      } else {
-        // 默认不自动选择第一个集群，让用户手动选择
-        currentClusterId.value = ''
-        namespaceStore.setCurrentClusterId(null)
       }
     } else {
-      // 如果没有集群数据，清空选择
       currentClusterId.value = ''
       namespaceStore.setCurrentClusterId(null)
     }
@@ -154,41 +155,38 @@ const fetchNamespaces = async () => {
   // 如果集群ID为空，不尝试获取命名空间
   if (!currentClusterId.value) {
     namespaces.value = []
-    currentNamespace.value = ''
     namespaceStore.setNamespaces([])
-    namespaceStore.setCurrentNamespace('')
+    // 不清空 currentNamespace：保留 URL/store 值，避免覆写分享链接上下文
     return
   }
-  
+
   try {
     const response: any = await getNamespaces()
     namespaces.value = response.data?.data || []
-    
-    // 设置默认命名空间
-    const savedNamespace = localStorage.getItem('currentNamespace')
-    if (savedNamespace && namespaces.value.some((ns: any) => ns.name === savedNamespace)) {
-      currentNamespace.value = savedNamespace
-    } else if (namespaces.value.length > 0) {
-      // 默认选择第一个命名空间
-      currentNamespace.value = namespaces.value[0].name
-      localStorage.setItem('currentNamespace', currentNamespace.value)
-    } else {
-      // 如果没有命名空间数据，清空选择
-      currentNamespace.value = ''
-      localStorage.removeItem('currentNamespace')
-    }
-    
-    // 更新 store 中的命名空间列表
     namespaceStore.setNamespaces(namespaces.value)
-    // 更新 store 中的当前命名空间
-    namespaceStore.setCurrentNamespace(currentNamespace.value)
+
+    // 优先保留 URL/store 已恢复的命名空间（若它存在于列表）
+    const storedNs = namespaceStore.currentNamespace
+    if (storedNs && namespaces.value.some((ns: any) => ns.name === storedNs)) {
+      currentNamespace.value = storedNs
+      return
+    }
+    // 列表非空但 storedNs 不在列表：回退到 localStorage 或首个命名空间
+    if (namespaces.value.length > 0) {
+      const savedNamespace = localStorage.getItem('currentNamespace')
+      const fallback = savedNamespace && namespaces.value.some((ns: any) => ns.name === savedNamespace)
+        ? savedNamespace
+        : namespaces.value[0].name
+      currentNamespace.value = fallback
+      localStorage.setItem('currentNamespace', fallback)
+      namespaceStore.setCurrentNamespace(fallback)
+    }
+    // 列表为空：保留 URL/store 已恢复的命名空间，不清空（集群可能临时不可达或无权限）
   } catch (error) {
     console.error('获取命名空间列表失败:', error)
-    // 出错时清空命名空间选择
     namespaces.value = []
-    currentNamespace.value = ''
     namespaceStore.setNamespaces([])
-    namespaceStore.setCurrentNamespace('')
+    // 拉取失败时保留 URL/store 已恢复的命名空间，避免把分享链接的上下文覆写为空
   }
 }
 
@@ -261,6 +259,8 @@ onMounted(async () => {
     const cluster = event.detail
     currentClusterId.value = cluster.id
   })
+  // 监听集群列表变更（集群管理页增删集群后），重新拉取集群列表以刷新下拉
+  window.addEventListener('clustersChanged', fetchClusters)
 })
 
 // 监听 store 中的集群 ID 变化

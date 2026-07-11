@@ -9,7 +9,7 @@ import { viteMockServe } from 'vite-plugin-mock'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: process.env.NODE_ENV === 'production' ? '/vue-admin/' : '',
+  base: '',
   server: {
     port: 3000,
     watch: { usePolling: true },
@@ -42,6 +42,11 @@ export default defineConfig({
       watchFiles: true
     })
   ],
+  // monaco-editor 不被 vite 预构建，避免内部 factory 被重打包破坏
+  // （修复 YamlEditor 的 "factory.create is not a function" 错误）
+  optimizeDeps: {
+    exclude: ['monaco-editor']
+  },
   css: {
     // css预处理器
     preprocessorOptions: {

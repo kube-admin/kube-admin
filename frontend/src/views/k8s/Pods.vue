@@ -2,24 +2,32 @@
   <div class="pods-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>Pod 列表</span>
-          <div>
-            <el-select v-model="namespaceStore.currentNamespace" placeholder="选择命名空间" style="width: 200px; margin-right: 10px">
-              <el-option
-                v-for="ns in namespaceStore.namespaces"
-                :key="ns.name"
-                :label="ns.name"
-                :value="ns.name"
-              />
+        <ListToolbar title="Pod 列表" :loading="loading" @refresh="fetchPods">
+          <template #filters>
+            <el-input v-model="searchKeyword" placeholder="搜索名称" clearable style="width: 160px" />
+            <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 120px">
+              <el-option v-for="s in POD_STATUSES" :key="s" :label="s" :value="s" />
             </el-select>
-            <el-button type="primary" @click="showCreateDialog">创建 Pod</el-button>
-          </div>
-        </div>
+          </template>
+          <el-button type="primary" @click="showCreateDialog">创建 Pod</el-button>
+        </ListToolbar>
       </template>
 
-      <el-table :data="pods" style="width: 100%" v-loading="loading">
-        <el-table-column prop="name" label="名称" width="250" />
+      <el-table :data="filteredPods" style="width: 100%" v-loading="loading">
+        <el-table-column label="名称" width="250">
+          <template #default="scope">
+            <router-link :to="{ path: '/k8s/pods/' + scope.row.name, query: { namespace: scope.row.namespace } }" class="name-link">{{ scope.row.name }}</router-link>
+          </template>
+        </el-table-column>
+        <el-table-column label="所属工作负载" width="240">
+          <template #default="scope">
+            <router-link v-if="ownerLink(scope.row)" :to="ownerLink(scope.row)" class="name-link">
+              {{ scope.row.owner.kind }} / {{ scope.row.owner.name }}
+            </router-link>
+            <span v-else-if="scope.row.owner">{{ scope.row.owner.kind }} / {{ scope.row.owner.name }}</span>
+            <span v-else style="color: #909399">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="namespace" label="命名空间" width="150" />
         <el-table-column prop="status" label="状态" width="120">
           <template #default="scope">
@@ -28,11 +36,22 @@
         </el-table-column>
         <el-table-column prop="pod_ip" label="Pod IP" width="150" />
         <el-table-column prop="node_name" label="节点" width="180" />
-        <el-table-column prop="creation_timestamp" label="创建时间" width="180" />
-        <el-table-column label="操作" fixed="right" width="250">
+        <el-table-column label="年龄" width="110">
           <template #default="scope">
+            <span :title="scope.row.creation_timestamp">{{ relTime(scope.row.creation_timestamp) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="CPU" width="90">
+          <template #default="scope">{{ fmtCpu(scope.row.cpu_usage) }}</template>
+        </el-table-column>
+        <el-table-column label="内存" width="100">
+          <template #default="scope">{{ fmtMem(scope.row.memory_usage) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" fixed="right" width="300">
+          <template #default="scope">
+            <el-button size="small" @click="yamlDrawer?.open(POD_GVR, scope.row.namespace, scope.row.name)">YAML</el-button>
             <el-button size="small" @click="showLogs(scope.row)">日志</el-button>
-            <el-button size="small" @click="showTerminal(scope.row)">终端</el-button>
+            <el-button size="small" @click="openTerminal(scope.row)">终端</el-button>
             <el-popconfirm
               title="确定删除这个Pod吗?"
               @confirm="handleDelete(scope.row)"
@@ -69,26 +88,6 @@
       <pre ref="logBoxRef" class="log-box">{{ filteredLogs || '(等待日志...)' }}</pre>
     </el-dialog>
 
-    <!-- 终端对话框 -->
-    <el-dialog v-model="terminalDialogVisible" title="Pod 终端" width="70%" @close="closeTerminal">
-      <div class="terminal-container">
-        <div ref="terminalRef" class="terminal-output"></div>
-        <div class="terminal-input-container">
-          <span class="prompt">$</span>
-          <input 
-            ref="terminalInputRef" 
-            v-model="terminalInput" 
-            @keyup.enter="sendCommand" 
-            @keydown.up="handleUpArrow"
-            @keydown.down="handleDownArrow"
-            class="terminal-input"
-            placeholder="输入命令..."
-            autocomplete="off"
-          />
-        </div>
-      </div>
-    </el-dialog>
-
     <!-- 创建 Pod 对话框 -->
     <el-dialog v-model="createDialogVisible" title="创建 Pod (YAML)" width="70%">
       <el-input
@@ -104,23 +103,39 @@
         <el-button type="primary" @click="handleCreate" :loading="creating">创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- YAML 查看/编辑 -->
+    <YamlDrawer ref="yamlDrawer" @saved="fetchPods" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
-import { getPods, deletePod, getPodLogs, getPodLogsStreamUrl, getNamespaces, createPodFromYaml, getPodTerminalUrl } from '@/apis/k8s'
+import { getPods, deletePod, getPodLogs, getPodLogsStreamUrl, getNamespaces, createPodFromYaml } from '@/apis/k8s'
+import { useRouter } from 'vue-router'
 import { useNamespaceStore } from '@/stores/namespace'
+import ListToolbar from '@/components/ListToolbar.vue'
+import YamlDrawer from '@/components/YamlDrawer.vue'
+import type { GVR } from '@/apis/k8s'
 import type { AxiosResponse } from 'axios'
 import type { Result } from '@/apis/client/request'
 
 const namespaceStore = useNamespaceStore()
+const POD_GVR: GVR = { version: 'v1', resource: 'pods' }
+const yamlDrawer = ref()
 
 const loading = ref(false)
 const pods = ref<any[]>([])
+// 列表搜索/筛选（前端过滤）
+const POD_STATUSES = ['Running', 'Pending', 'Failed', 'Succeeded']
+const searchKeyword = ref('')
+const statusFilter = ref('')
+const filteredPods = computed(() => pods.value.filter((p: any) =>
+  (!searchKeyword.value || (p.name || '').toLowerCase().includes(searchKeyword.value.toLowerCase())) &&
+  (!statusFilter.value || p.status === statusFilter.value)
+))
 const logDialogVisible = ref(false)
-const terminalDialogVisible = ref(false)
 const logs = ref('')
 const selectedContainer = ref('')
 const currentPodContainers = ref<any[]>([])
@@ -128,15 +143,6 @@ const currentPod = ref<any>(null)
 const createDialogVisible = ref(false)
 const creating = ref(false)
 const podYaml = ref('')
-
-// 终端相关
-const terminalRef = ref<HTMLDivElement | null>(null)
-const terminalInputRef = ref<HTMLInputElement | null>(null)
-const terminalInput = ref('')
-const commandHistory = ref<string[]>([])
-const historyIndex = ref(-1)
-let ws: WebSocket | null = null
-let currentContainer = ''
 
 // 获取命名空间列表
 const fetchNamespaces = async () => {
@@ -169,6 +175,54 @@ const getStatusType = (status: string) => {
     'Succeeded': 'info'
   }
   return typeMap[status] || 'info'
+}
+
+// 计算 Pod 所属工作负载的详情页链接（仅有详情页的 Deployment/StatefulSet/DaemonSet 可点）
+const ownerLink = (pod: any): string => {
+  const o = pod.owner
+  if (!o?.kind || !o?.name) return ''
+  const ns = pod.namespace
+  switch (o.kind) {
+    case 'Deployment':
+      return `/k8s/deployments/${o.name}?namespace=${ns}`
+    case 'StatefulSet':
+      return `/k8s/statefulsets/${o.name}?namespace=${ns}`
+    case 'DaemonSet':
+      return `/k8s/daemonsets/${o.name}?namespace=${ns}`
+    default:
+      return ''
+  }
+}
+
+// 相对时间（年龄）：创建时间 → "3天前"，hover 显示原始时间
+const relTime = (ts?: string) => {
+  if (!ts) return '-'
+  const t = new Date(ts).getTime()
+  if (isNaN(t)) return '-'
+  const s = Math.floor((Date.now() - t) / 1000)
+  if (s < 60) return `${s}秒前`
+  if (s < 3600) return `${Math.floor(s / 60)}分钟前`
+  if (s < 86400) return `${Math.floor(s / 3600)}小时前`
+  return `${Math.floor(s / 86400)}天前`
+}
+
+// CPU/内存 Quantity 格式化（与 Dashboard 一致）
+const fmtCpu = (q?: string | number) => {
+  if (q === undefined || q === null || q === '') return '-'
+  const s = String(q)
+  if (s.endsWith('n')) return (parseInt(s) / 1e9).toFixed(3)
+  if (s.endsWith('u')) return (parseInt(s) / 1e6).toFixed(3)
+  if (s.endsWith('m')) return (parseInt(s) / 1e3).toFixed(2)
+  return parseFloat(s).toFixed(2)
+}
+const UNIT_BYTES: Record<string, number> = { Ki: 1024, Mi: 1024 ** 2, Gi: 1024 ** 3, Ti: 1024 ** 4 }
+const fmtMem = (q?: string | number) => {
+  if (q === undefined || q === null || q === '') return '-'
+  const s = String(q)
+  const m = s.match(/^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti)?$/)
+  if (!m) return s
+  const bytes = parseFloat(m[1]) * (m[2] ? UNIT_BYTES[m[2]] : 1)
+  return (bytes / 1024 ** 2).toFixed(0) + ' Mi'
 }
 
 const handleDelete = async (pod: any) => {
@@ -272,259 +326,17 @@ onUnmounted(() => {
   closeLogStream()
 })
 
-// 显示终端对话框
-const showTerminal = (pod: any) => {
-  currentPod.value = pod
-  currentPodContainers.value = pod.containers || []
-  if (currentPodContainers.value.length > 0) {
-    currentContainer = currentPodContainers.value[0].name
-  }
-  terminalDialogVisible.value = true
-  terminalInput.value = ''
-  commandHistory.value = []
-  historyIndex.value = -1
-  
-  // 在下一次DOM更新后连接WebSocket
-  nextTick(() => {
-    console.log('准备连接到终端:', {
-      pod: pod.name,
-      namespace: pod.namespace,
-      container: currentContainer
-    })
-    connectTerminal()
-    if (terminalInputRef.value) {
-      terminalInputRef.value.focus()
-    }
-  })
-}
+const router = useRouter()
 
-// 连接终端WebSocket
-const connectTerminal = () => {
-  if (!currentPod.value) return
-  
-  const wsUrl = getPodTerminalUrl(
-    currentPod.value.name,
-    currentPod.value.namespace,
-    currentContainer
-  )
-  
-  // 关闭现有连接
-  if (ws) {
-    ws.close()
-  }
-  
-  try {
-    console.log('Connecting to WebSocket:', wsUrl)
-    ws = new WebSocket(wsUrl)
-    
-    ws.onopen = () => {
-      console.log('WebSocket connection opened')
-      appendToTerminal('连接到终端成功\n')
-    }
-    
-    ws.onmessage = (event) => {
-      appendToTerminal(event.data)
-    }
-    
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
-      // 提供更详细的错误信息
-      if (error instanceof Event) {
-        appendToTerminal(`终端连接错误: 网络错误或连接被拒绝\n`)
-      } else {
-        appendToTerminal(`终端连接错误: ${JSON.stringify(error)}\n`)
-      }
-    }
-    
-    ws.onclose = (event) => {
-      console.log('WebSocket connection closed:', event.code, event.reason)
-      // 对于正常的关闭状态码，不显示错误信息给用户
-      if (event.code === 1000 || event.code === 1005) {
-        // 正常关闭，不显示任何消息给用户
-        console.log('WebSocket connection closed normally')
-      } else if (event.code === 1006) {
-        appendToTerminal('终端连接异常关闭: 可能是网络问题或服务器未响应\n')
-      } else {
-        appendToTerminal(`终端连接已关闭 (代码: ${event.code})\n`)
-      }
-    }
-  } catch (error: any) {
-    console.error('Failed to create WebSocket connection:', error)
-    appendToTerminal(`连接终端失败: ${error?.message || JSON.stringify(error)}\n`)
-  }
-}
-
-// ANSI转义序列到CSS样式的映射
-const ansiToCss = (codes: string): string => {
-  const codeArray = codes.split(';').map(Number);
-  const styles: string[] = [];
-  
-  for (let i = 0; i < codeArray.length; i++) {
-    const code = codeArray[i];
-    switch (code) {
-      case 0: // 重置
-        return '</span>';
-      case 1: // 粗体
-        styles.push('font-weight: bold');
-        break;
-      case 30: // 黑色
-        styles.push('color: #000000');
-        break;
-      case 31: // 红色
-        styles.push('color: #ff6b6b');
-        break;
-      case 32: // 绿色
-        styles.push('color: #51cf66');
-        break;
-      case 33: // 黄色
-        styles.push('color: #ffd43b');
-        break;
-      case 34: // 蓝色
-        styles.push('color: #4fc1ff');
-        break;
-      case 35: // 洋红色
-        styles.push('color: #cc5de8');
-        break;
-      case 36: // 青色
-        styles.push('color: #22b8cf');
-        break;
-      case 37: // 白色
-        styles.push('color: #f8f9fa');
-        break;
-      case 40: // 背景黑色
-        styles.push('background-color: #000000');
-        break;
-      case 41: // 背景红色
-        styles.push('background-color: #ff6b6b');
-        break;
-      case 42: // 背景绿色
-        styles.push('background-color: #51cf66');
-        break;
-      case 43: // 背景黄色
-        styles.push('background-color: #ffd43b');
-        break;
-      case 44: // 背景蓝色
-        styles.push('background-color: #4fc1ff');
-        break;
-      case 45: // 背景洋红色
-        styles.push('background-color: #cc5de8');
-        break;
-      case 46: // 背景青色
-        styles.push('background-color: #22b8cf');
-        break;
-      case 47: // 背景白色
-        styles.push('background-color: #f8f9fa');
-        break;
-    }
-  }
-  
-  return `<span style="${styles.join('; ')}">`;
-};
-
-// 向终端输出追加内容
-const appendToTerminal = (text: string) => {
-  if (terminalRef.value) {
-    // 创建一个临时元素来解析ANSI转义序列
-    const tempDiv = document.createElement('div');
-    tempDiv.style.whiteSpace = 'pre';
-    tempDiv.style.fontFamily = 'monospace';
-    
-    // 处理ANSI转义序列
-    let formattedText = text;
-    
-    // 处理光标定位请求等控制序列（例如 \x1b[6n）
-    formattedText = formattedText.replace(/\x1b\[\?(\d+)([a-zA-Z])/g, ''); // 查询设备状态等
-    formattedText = formattedText.replace(/\x1b\[(\d+)([A-Za-z])/g, ''); // 光标移动等控制序列
-    
-    // 处理颜色和格式控制序列
-    formattedText = formattedText.replace(/\x1b\[([0-9;]*)m/g, (match, codes) => {
-      if (codes === '') {
-        // 只有ESC[m的情况，默认为重置
-        return '</span>';
-      }
-      return ansiToCss(codes);
-    });
-    
-    // 确保所有打开的标签都被关闭
-    let openTags = (formattedText.match(/<span/g) || []).length;
-    let closeTags = (formattedText.match(/<\/span/g) || []).length;
-    for (let i = 0; i < openTags - closeTags; i++) {
-      formattedText += '</span>';
-    }
-    
-    tempDiv.innerHTML = formattedText;
-    
-    // 将处理后的内容添加到终端
-    terminalRef.value.appendChild(tempDiv);
-    
-    // 滚动到底部
-    terminalRef.value.scrollTop = terminalRef.value.scrollHeight;
-  }
-}
-
-// 发送命令到终端
-const sendCommand = () => {
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    ElMessage.error('终端连接未建立')
-    return
-  }
-  
-  const command = terminalInput.value.trim()
-  if (!command) return
-  
-  // 添加到命令历史
-  if (commandHistory.value[commandHistory.value.length - 1] !== command) {
-    commandHistory.value.push(command)
-  }
-  historyIndex.value = commandHistory.value.length
-  
-  // 发送到WebSocket
-  ws.send(command + '\n')
-  
-  // 清空输入框
-  terminalInput.value = ''
-}
-
-// 关闭终端连接
-const closeTerminal = () => {
-  if (ws) {
-    ws.close()
-    ws = null
-  }
-  if (terminalRef.value) {
-    terminalRef.value.innerHTML = ''
-  }
-}
-
-// 处理上箭头键（命令历史）
-const handleUpArrow = (event: KeyboardEvent) => {
-  if (commandHistory.value.length === 0) return
-  
-  if (historyIndex.value === -1 || historyIndex.value > commandHistory.value.length - 1) {
-    historyIndex.value = commandHistory.value.length
-  }
-  
-  if (historyIndex.value > 0) {
-    historyIndex.value--
-    terminalInput.value = commandHistory.value[historyIndex.value]
-  }
-  
-  event.preventDefault()
-}
-
-// 处理下箭头键（命令历史）
-const handleDownArrow = (event: KeyboardEvent) => {
-  if (commandHistory.value.length === 0) return
-  
-  if (historyIndex.value < commandHistory.value.length - 1) {
-    historyIndex.value++
-    terminalInput.value = commandHistory.value[historyIndex.value]
-  } else {
-    historyIndex.value = commandHistory.value.length
-    terminalInput.value = ''
-  }
-  
-  event.preventDefault()
+// 打开 Pod 终端（跳转独立全屏页）
+const openTerminal = (pod: any) => {
+  const container = pod.containers?.[0]?.name || ''
+  // 新标签打开终端：独立于列表页，避免误关列表断终端，且支持多开
+  const href = router.resolve({
+    path: `/k8s/pods/${pod.name}/terminal`,
+    query: { namespace: pod.namespace, container }
+  }).href
+  window.open(href, '_blank')
 }
 
 const showCreateDialog = () => {
@@ -610,6 +422,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .log-toolbar {
@@ -633,50 +447,5 @@ onMounted(() => {
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0;
-}
-
-.terminal-container {
-  background-color: #1e1e1e;
-  color: #ffffff;
-  border-radius: 4px;
-  padding: 10px;
-  font-family: 'Courier New', monospace;
-  height: 400px;
-  display: flex;
-  flex-direction: column;
-}
-
-.terminal-output {
-  flex: 1;
-  overflow-y: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin-bottom: 10px;
-}
-
-.terminal-input-container {
-  display: flex;
-  align-items: center;
-  border-top: 1px solid #333;
-  padding-top: 5px;
-}
-
-.prompt {
-  color: #4ec9b0;
-  margin-right: 5px;
-  font-weight: bold;
-}
-
-.terminal-input {
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: #ffffff;
-  font-family: 'Courier New', monospace;
-  outline: none;
-}
-
-.terminal-input::placeholder {
-  color: #666;
 }
 </style>

@@ -3,7 +3,7 @@
     <!-- 资源统计卡片 -->
     <el-row :gutter="20">
       <el-col :span="6">
-        <el-card class="stats-card">
+        <el-card class="stats-card" shadow="hover" @click="goTo('/k8s/nodes')">
           <div class="stats-content">
             <el-icon class="stats-icon" :size="40" color="#409EFF"><Platform /></el-icon>
             <div class="stats-info">
@@ -14,7 +14,7 @@
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card class="stats-card">
+        <el-card class="stats-card" shadow="hover" @click="goTo('/k8s/namespaces')">
           <div class="stats-content">
             <el-icon class="stats-icon" :size="40" color="#67C23A"><Box /></el-icon>
             <div class="stats-info">
@@ -25,7 +25,7 @@
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card class="stats-card">
+        <el-card class="stats-card" shadow="hover" @click="goTo('/k8s/pods')">
           <div class="stats-content">
             <el-icon class="stats-icon" :size="40" color="#E6A23C"><Box /></el-icon>
             <div class="stats-info">
@@ -36,7 +36,7 @@
         </el-card>
       </el-col>
       <el-col :span="6">
-        <el-card class="stats-card">
+        <el-card class="stats-card" shadow="hover" @click="goTo('/k8s/deployments')">
           <div class="stats-content">
             <el-icon class="stats-icon" :size="40" color="#F56C6C"><Setting /></el-icon>
             <div class="stats-info">
@@ -54,14 +54,14 @@
         <el-card>
           <template #header><div class="card-header">CPU 使用率</div></template>
           <v-chart class="chart" :option="cpuGaugeOption" autoresize />
-          <div class="usage-detail">{{ stats.cluster_usage?.cpu_used || '-' }} / {{ stats.cluster_usage?.cpu_capacity || '-' }}</div>
+          <div class="usage-detail">{{ fmtCpu(stats.cluster_usage?.cpu_used) }} / {{ fmtCpu(stats.cluster_usage?.cpu_capacity) }} 核</div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card>
           <template #header><div class="card-header">内存使用率</div></template>
           <v-chart class="chart" :option="memGaugeOption" autoresize />
-          <div class="usage-detail">{{ stats.cluster_usage?.memory_used || '-' }} / {{ stats.cluster_usage?.memory_capacity || '-' }}</div>
+          <div class="usage-detail">{{ fmtMem(stats.cluster_usage?.memory_used) }} / {{ fmtMem(stats.cluster_usage?.memory_capacity) }}</div>
         </el-card>
       </el-col>
       <el-col :span="12">
@@ -167,6 +167,26 @@ const fetchStats = async () => {
 
 const goTo = (path: string) => {
   router.push(path)
+}
+
+// CPU Quantity（k8s resource.Quantity 字符串）→ cores，如 "764075769n"(纳核) → 0.76，"500m" → 0.5，"2" → 2.00
+const fmtCpu = (q?: string | number) => {
+  if (q === undefined || q === null || q === '') return '-'
+  const s = String(q)
+  if (s.endsWith('n')) return (parseInt(s) / 1e9).toFixed(2)
+  if (s.endsWith('u')) return (parseInt(s) / 1e6).toFixed(3)
+  if (s.endsWith('m')) return (parseInt(s) / 1e3).toFixed(2)
+  return parseFloat(s).toFixed(2)
+}
+// 内存 Quantity → Gi，如 "15096864Ki" → 14.40 Gi
+const UNIT_BYTES: Record<string, number> = { Ki: 1024, Mi: 1024 ** 2, Gi: 1024 ** 3, Ti: 1024 ** 4 }
+const fmtMem = (q?: string | number) => {
+  if (q === undefined || q === null || q === '') return '-'
+  const s = String(q)
+  const m = s.match(/^(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti)?$/)
+  if (!m) return s
+  const bytes = parseFloat(m[1]) * (m[2] ? UNIT_BYTES[m[2]] : 1)
+  return (bytes / 1024 ** 3).toFixed(2) + ' Gi'
 }
 
 // Pod 状态饼图

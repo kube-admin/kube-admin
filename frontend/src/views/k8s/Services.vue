@@ -2,24 +2,23 @@
   <div class="services-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>Service 列表</span>
-          <div>
-            <el-select v-model="namespaceStore.currentNamespace" placeholder="选择命名空间" style="width: 200px; margin-right: 10px">
-              <el-option
-                v-for="ns in namespaceStore.namespaces"
-                :key="ns.name"
-                :label="ns.name"
-                :value="ns.name"
-              />
+        <ListToolbar title="Service 列表" :loading="loading" @refresh="fetchServices">
+          <template #filters>
+            <el-input v-model="searchKeyword" placeholder="搜索名称" clearable style="width: 160px" />
+            <el-select v-model="typeFilter" placeholder="类型" clearable style="width: 130px">
+              <el-option v-for="t in ['ClusterIP','NodePort','LoadBalancer','ExternalName']" :key="t" :label="t" :value="t" />
             </el-select>
-            <el-button type="primary" @click="showCreateDialog">创建 Service</el-button>
-          </div>
-        </div>
+          </template>
+          <el-button type="primary" @click="showCreateDialog">创建 Service</el-button>
+        </ListToolbar>
       </template>
 
-      <el-table :data="services" style="width: 100%" v-loading="loading">
-        <el-table-column prop="name" label="名称" width="200" />
+      <el-table :data="filteredServices" style="width: 100%" v-loading="loading">
+        <el-table-column label="名称" width="200">
+          <template #default="scope">
+            <router-link :to="{ path: '/k8s/services/' + scope.row.name, query: { namespace: scope.row.namespace } }" class="name-link">{{ scope.row.name }}</router-link>
+          </template>
+        </el-table-column>
         <el-table-column prop="namespace" label="命名空间" width="150" />
         <el-table-column prop="type" label="类型" width="150">
           <template #default="scope">
@@ -62,8 +61,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="creation_timestamp" label="创建时间" width="180" />
-        <el-table-column label="操作" fixed="right" width="200">
+        <el-table-column label="操作" fixed="right" width="260">
           <template #default="scope">
+            <el-button size="small" @click="yamlDrawer?.open(SERVICE_GVR, scope.row.namespace, scope.row.name)">YAML</el-button>
             <el-button size="small" @click="viewDetail(scope.row)">查看详情</el-button>
             <el-popconfirm
               title="确定删除这个Service吗?"
@@ -166,19 +166,33 @@
         <el-button type="primary" @click="handleCreate" :loading="creating">创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- YAML 查看/编辑 -->
+    <YamlDrawer ref="yamlDrawer" @saved="fetchServices" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getServices, getServiceDetail, deleteService, getNamespaces, createServiceFromYaml } from '@/apis/k8s'
 import { useNamespaceStore } from '@/stores/namespace'
+import ListToolbar from '@/components/ListToolbar.vue'
+import YamlDrawer from '@/components/YamlDrawer.vue'
+import type { GVR } from '@/apis/k8s'
 
 const namespaceStore = useNamespaceStore()
+const SERVICE_GVR: GVR = { version: 'v1', resource: 'services' }
+const yamlDrawer = ref()
 
 const loading = ref(false)
 const services = ref<any[]>([])
+const searchKeyword = ref('')
+const typeFilter = ref('')
+const filteredServices = computed(() => services.value.filter((s: any) =>
+  (!searchKeyword.value || (s.name || '').toLowerCase().includes(searchKeyword.value.toLowerCase())) &&
+  (!typeFilter.value || s.type === typeFilter.value)
+))
 const detailDialogVisible = ref(false)
 const currentService = ref<any>(null)
 const activeTab = ref('basic')
@@ -338,5 +352,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 </style>

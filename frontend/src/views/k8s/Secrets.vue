@@ -2,23 +2,15 @@
   <div class="secrets-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>Secret 列表</span>
-          <div>
-            <el-select v-model="namespaceStore.currentNamespace" placeholder="选择命名空间" style="width: 200px; margin-right: 10px">
-              <el-option
-                v-for="ns in namespaces"
-                :key="ns.name"
-                :label="ns.name"
-                :value="ns.name"
-              />
-            </el-select>
-            <el-button type="primary" @click="showCreateDialog">创建 Secret</el-button>
-          </div>
-        </div>
+        <ListToolbar title="Secret 列表" :loading="loading" @refresh="fetchSecrets">
+          <template #filters>
+            <el-input v-model="searchKeyword" placeholder="搜索名称" clearable style="width: 160px" />
+          </template>
+          <el-button type="primary" @click="showCreateDialog">创建 Secret</el-button>
+        </ListToolbar>
       </template>
 
-      <el-table :data="secrets" style="width: 100%" v-loading="loading">
+      <el-table :data="filteredSecrets" style="width: 100%" v-loading="loading">
         <el-table-column prop="name" label="名称" width="250" />
         <el-table-column prop="namespace" label="命名空间" width="150" />
         <el-table-column prop="type" label="类型" width="200" />
@@ -28,8 +20,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="creation_timestamp" label="创建时间" width="180" />
-        <el-table-column label="操作" fixed="right" width="250">
+        <el-table-column label="操作" fixed="right" width="300">
           <template #default="scope">
+            <el-button size="small" @click="yamlDrawer?.open(SECRET_GVR, scope.row.namespace, scope.row.name)">YAML</el-button>
             <el-button size="small" @click="viewDetail(scope.row)">查看</el-button>
             <el-button size="small" type="warning" @click="editSecret(scope.row)">编辑</el-button>
             <el-popconfirm
@@ -138,11 +131,14 @@
         </el-table>
       </div>
     </el-dialog>
+
+    <!-- YAML 查看/编辑 -->
+    <YamlDrawer ref="yamlDrawer" @saved="fetchSecrets" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   getSecrets,
@@ -153,9 +149,16 @@ import {
   getNamespaces
 } from '@/apis/k8s'
 import { useNamespaceStore } from '@/stores/namespace'
+import ListToolbar from '@/components/ListToolbar.vue'
+import YamlDrawer from '@/components/YamlDrawer.vue'
+import type { GVR } from '@/apis/k8s'
 
 const loading = ref(false)
 const secrets = ref<any[]>([])
+const searchKeyword = ref('')
+const filteredSecrets = computed(() => secrets.value.filter((r: any) =>
+  !searchKeyword.value || (r.name || '').toLowerCase().includes(searchKeyword.value.toLowerCase())
+))
 const namespaces = ref<any[]>([])
 const currentNamespace = ref('default')
 const dialogVisible = ref(false)
@@ -167,6 +170,8 @@ const showDecoded = ref(false)
 
 // 获取命名空间 store
 const namespaceStore = useNamespaceStore()
+const SECRET_GVR: GVR = { version: 'v1', resource: 'secrets' }
+const yamlDrawer = ref()
 
 const form = ref({
   name: '',
@@ -356,5 +361,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 </style>

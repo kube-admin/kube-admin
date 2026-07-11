@@ -2,13 +2,14 @@
   <div class="nodes-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>Node 列表</span>
-          <el-button type="primary" @click="fetchNodes" :loading="loading">刷新</el-button>
-        </div>
+        <ListToolbar title="Node 列表" :loading="loading" @refresh="fetchNodes">
+          <template #filters>
+            <el-input v-model="searchKeyword" placeholder="搜索名称" clearable style="width: 160px" />
+          </template>
+        </ListToolbar>
       </template>
 
-      <el-table :data="nodes" style="width: 100%" v-loading="loading">
+      <el-table :data="filteredNodes" style="width: 100%" v-loading="loading">
         <el-table-column prop="name" label="名称" width="250" />
         <el-table-column prop="status" label="状态" width="120">
           <template #default="scope">
@@ -45,8 +46,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="creation_timestamp" label="加入时间" width="180" />
-        <el-table-column label="操作" fixed="right" width="120">
+        <el-table-column label="操作" fixed="right" width="180">
           <template #default="scope">
+            <el-button size="small" @click="yamlDrawer?.open(NODE_GVR, '', scope.row.name)">YAML</el-button>
             <el-button size="small" @click="viewDetail(scope.row)">查看详情</el-button>
           </template>
         </el-table-column>
@@ -145,24 +147,36 @@
       </el-tabs>
     </el-dialog>
 
+    <!-- YAML 查看/编辑 -->
+    <YamlDrawer ref="yamlDrawer" @saved="fetchNodes" />
+
 
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getNodes, getNodeDetail } from '@/apis/k8s'
 import { useNamespaceStore } from '@/stores/namespace'
+import ListToolbar from '@/components/ListToolbar.vue'
+import YamlDrawer from '@/components/YamlDrawer.vue'
+import type { GVR } from '@/apis/k8s'
 
 const loading = ref(false)
 const nodes = ref<any[]>([])
+const searchKeyword = ref('')
+const filteredNodes = computed(() => nodes.value.filter((r: any) =>
+  !searchKeyword.value || (r.name || '').toLowerCase().includes(searchKeyword.value.toLowerCase())
+))
 const detailDialogVisible = ref(false)
 const currentNode = ref<any>(null)
 const activeTab = ref('basic')
 
 // 获取命名空间 store
 const namespaceStore = useNamespaceStore()
+const NODE_GVR: GVR = { version: 'v1', resource: 'nodes' }
+const yamlDrawer = ref()
 
 
 
@@ -266,6 +280,8 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 

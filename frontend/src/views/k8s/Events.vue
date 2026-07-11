@@ -2,33 +2,28 @@
   <div class="events-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>Events 事件</span>
-          <div class="header-actions">
-            <el-select
-              v-model="namespace"
-              placeholder="命名空间"
-              size="small"
-              style="width: 180px"
-              @change="fetchEvents"
-            >
-              <el-option label="所有命名空间" value="" />
-              <el-option v-for="ns in namespaces" :key="ns" :label="ns" :value="ns" />
-            </el-select>
-            <el-select
-              v-model="typeFilter"
-              placeholder="类型"
-              size="small"
-              style="width: 130px"
-            >
-              <el-option label="全部" value="" />
-              <el-option label="Normal" value="Normal" />
-              <el-option label="Warning" value="Warning" />
-            </el-select>
-            <el-button size="small" @click="fetchEvents" :loading="loading">刷新</el-button>
-            <AutoRefresh :interval="30" @refresh="fetchEvents" />
-          </div>
-        </div>
+        <ListToolbar title="Events 事件" :loading="loading" @refresh="fetchEvents">
+          <el-select
+            v-model="namespace"
+            placeholder="命名空间"
+            size="small"
+            style="width: 180px"
+            @change="fetchEvents"
+          >
+            <el-option label="所有命名空间" value="" />
+            <el-option v-for="ns in namespaces" :key="ns" :label="ns" :value="ns" />
+          </el-select>
+          <el-select
+            v-model="typeFilter"
+            placeholder="类型"
+            size="small"
+            style="width: 130px"
+          >
+            <el-option label="全部" value="" />
+            <el-option label="Normal" value="Normal" />
+            <el-option label="Warning" value="Warning" />
+          </el-select>
+        </ListToolbar>
       </template>
 
       <el-table :data="filteredEvents" v-loading="loading" style="width: 100%" border>
@@ -59,7 +54,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getEvents, getNamespaces } from '@/apis/k8s'
-import AutoRefresh from '@/components/AutoRefresh.vue'
+import ListToolbar from '@/components/ListToolbar.vue'
 
 interface EventItem {
   name: string
@@ -122,6 +117,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 .header-actions {
   display: flex;

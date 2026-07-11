@@ -2,38 +2,30 @@
   <div class="resources-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>{{ currentType?.label || '资源管理' }}</span>
-          <div class="header-actions">
-            <el-select v-model="currentTypeKey" size="small" style="width: 200px" @change="onTypeChange">
-              <el-option v-for="t in RESOURCE_TYPES" :key="t.key" :label="t.label" :value="t.key" />
-            </el-select>
-            <el-select
-              v-model="namespace"
-              size="small"
-              style="width: 170px"
-              :disabled="!currentType?.namespaced"
-              @change="fetchList"
-            >
-              <el-option label="所有命名空间" value="" />
-              <el-option v-for="ns in namespaces" :key="ns" :label="ns" :value="ns" />
-            </el-select>
-            <el-button size="small" @click="fetchList" :loading="loading">刷新</el-button>
-            <el-button size="small" type="primary" @click="openApplyDialog">应用 YAML</el-button>
-            <AutoRefresh :interval="30" @refresh="fetchList" />
-          </div>
-        </div>
+        <ListToolbar :title="currentType?.label || '资源管理'" :loading="loading" @refresh="fetchList">
+          <template #filters>
+            <el-input v-model="searchKeyword" placeholder="搜索名称" clearable style="width: 160px" />
+          </template>
+          <el-button type="primary" @click="openApplyDialog">应用 YAML</el-button>
+        </ListToolbar>
       </template>
 
-      <el-table :data="items" v-loading="loading" border style="width: 100%">
-        <el-table-column prop="metadata.name" label="名称" min-width="200" show-overflow-tooltip />
+      <el-table :data="filteredItems" v-loading="loading" border style="width: 100%">
+        <el-table-column prop="metadata.name" label="名称" min-width="200" show-overflow-tooltip>
+          <template #default="scope">
+            <router-link v-if="detailPath(scope.row)" :to="detailPath(scope.row)" class="name-link">{{ scope.row.metadata.name }}</router-link>
+            <span v-else>{{ scope.row.metadata.name }}</span>
+          </template>
+        </el-table-column>
         <el-table-column v-if="currentType?.namespaced" prop="metadata.namespace" label="命名空间" width="150" />
         <el-table-column label="创建时间" width="200">
           <template #default="scope">{{ formatTime(scope.row.metadata?.creationTimestamp) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="180" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="scope">
-            <el-button size="small" @click="viewYaml(scope.row)">YAML</el-button>
+            <el-button v-if="isWorkload" size="small" @click="showScaleDialog(scope.row)">扩缩容</el-button>
+            <el-button v-if="isWorkload" size="small" type="warning" @click="handleRestart(scope.row)">重启</el-button>
+            <el-button size="small" @click="yamlDrawer?.open(currentType?.gvr, scope.row.metadata?.namespace || '', scope.row.metadata.name)">YAML</el-button>
             <el-button size="small" type="danger" @click="removeItem(scope.row)">删除</el-button>
           </template>
         </el-table-column>
@@ -41,14 +33,8 @@
       <div v-if="!loading && items.length === 0" class="empty-tip">暂无资源</div>
     </el-card>
 
-    <!-- YAML 查看/编辑抽屉 -->
-    <el-drawer v-model="yamlDrawerVisible" :title="yamlDrawerTitle" size="60%">
-      <YamlEditor v-model="yamlContent" height="70vh" />
-      <div class="drawer-footer">
-        <el-button @click="yamlDrawerVisible = false">取消</el-button>
-        <el-button type="primary" @click="applyFromDrawer" :loading="applying">应用修改</el-button>
-      </div>
-    </el-drawer>
+    <!-- YAML 查看/编辑 -->
+    <YamlDrawer ref="yamlDrawer" @saved="fetchList" />
 
     <!-- 应用 YAML 对话框 -->
     <el-dialog v-model="applyDialogVisible" title="应用 YAML（创建或更新任意资源）" width="60%">
@@ -58,6 +44,19 @@
         <el-button type="primary" @click="doApply" :loading="applying">应用</el-button>
       </div>
     </el-dialog>
+
+    <!-- 扩缩容对话框（workload） -->
+    <el-dialog v-model="scaleDialogVisible" title="扩缩容" width="400px">
+      <el-form>
+        <el-form-item label="副本数">
+          <el-input-number v-model="scaleReplicas" :min="0" :max="100" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="scaleDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleScale">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -65,10 +64,12 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { listResources, getResource, deleteResource, applyResource, getNamespaces } from '@/apis/k8s'
+import { listResources, getResource, deleteResource, applyResource, scaleResource, restartResource } from '@/apis/k8s'
 import type { GVR } from '@/apis/k8s'
-import AutoRefresh from '@/components/AutoRefresh.vue'
+import { useNamespaceStore } from '@/stores/namespace'
+import ListToolbar from '@/components/ListToolbar.vue'
 import YamlEditor from '@/components/YamlEditor.vue'
+import YamlDrawer from '@/components/YamlDrawer.vue'
 import yaml from 'js-yaml'
 
 interface ResourceType {
@@ -101,17 +102,41 @@ const RESOURCE_TYPES: ResourceType[] = [
 const route = useRoute()
 const currentTypeKey = ref('')
 const currentType = computed(() => RESOURCE_TYPES.find((t) => t.key === currentTypeKey.value))
+
+// 资源详情页链接（仅 StatefulSet/DaemonSet/Service 首批有详情页，其余保持纯文本）
+const detailPath = (row: any): string => {
+  const res = currentType.value?.gvr?.resource
+  if (!res) return ''
+  const ns = row.metadata?.namespace
+  const name = row.metadata?.name
+  if (res === 'statefulsets') return `/k8s/statefulsets/${name}?namespace=${ns}`
+  if (res === 'daemonsets') return `/k8s/daemonsets/${name}?namespace=${ns}`
+  if (res === 'services') return `/k8s/services/${name}?namespace=${ns}`
+  return ''
+}
 const items = ref<any[]>([])
-const namespaces = ref<string[]>([])
-const namespace = ref('')
+const searchKeyword = ref('')
+const filteredItems = computed(() => items.value.filter((r: any) =>
+  !searchKeyword.value || (r.metadata?.name || '').toLowerCase().includes(searchKeyword.value.toLowerCase())
+))
+const namespaceStore = useNamespaceStore()
+// 命名空间统一用 Header 全局选择器（store），本页不再自带命名空间选择器
+const namespace = computed(() => namespaceStore.currentNamespace || '')
 const loading = ref(false)
 
-const yamlDrawerVisible = ref(false)
-const yamlDrawerTitle = ref('YAML')
-const yamlContent = ref('')
+const yamlDrawer = ref()
 const applyDialogVisible = ref(false)
 const applyYamlContent = ref('')
 const applying = ref(false)
+
+// 当前类型是否为支持扩缩容/重启的 workload（StatefulSet/DaemonSet/ReplicaSet）
+const WORKLOAD_RESOURCES = ['statefulsets', 'daemonsets', 'replicasets', 'deployments']
+const isWorkload = computed(() => WORKLOAD_RESOURCES.includes(currentType.value?.gvr.resource || ''))
+
+// 扩缩容状态
+const scaleDialogVisible = ref(false)
+const scaleReplicas = ref(1)
+const currentResource = ref<any>(null)
 
 const formatTime = (ts?: string) => {
   if (!ts) return '-'
@@ -151,30 +176,7 @@ const fetchList = async () => {
   }
 }
 
-const fetchNamespaces = async () => {
-  try {
-    const res: any = await getNamespaces()
-    namespaces.value = (res.data?.data || []).map((n: any) => n.name).filter(Boolean)
-  } catch (e) {
-    // 忽略
-  }
-}
-
 const onTypeChange = () => fetchList()
-
-const viewYaml = async (row: any) => {
-  if (!currentType.value) return
-  try {
-    const ns = row.metadata?.namespace || ''
-    const res: any = await getResource(currentType.value.gvr, ns, row.metadata.name)
-    const obj = res.data?.data || {}
-    yamlContent.value = yaml.dump(obj, { lineWidth: -1, noRefs: true, quotingType: '"' })
-    yamlDrawerTitle.value = `YAML - ${row.metadata.name}`
-    yamlDrawerVisible.value = true
-  } catch (e: any) {
-    ElMessage.error(e?.message || '获取详情失败')
-  }
-}
 
 const removeItem = (row: any) => {
   ElMessageBox.confirm(`确定删除 ${row.metadata.name}？此操作不可恢复。`, '确认删除', {
@@ -216,28 +218,45 @@ const doApply = async () => {
   }
 }
 
-const applyFromDrawer = async () => {
-  applying.value = true
-  try {
-    await applyResource(yamlContent.value)
-    ElMessage.success('应用成功')
-    yamlDrawerVisible.value = false
-    fetchList()
-  } catch (e: any) {
-    ElMessage.error(e?.message || '应用失败')
-  } finally {
-    applying.value = false
-  }
-}
-
 watch(() => route.meta, () => {
   initFromRoute()
   fetchList()
 })
 
+// 扩缩容
+const showScaleDialog = (row: any) => {
+  currentResource.value = row
+  scaleReplicas.value = (row.spec?.replicas ?? 1) as number
+  scaleDialogVisible.value = true
+}
+const handleScale = async () => {
+  if (!currentResource.value || !currentType.value) return
+  try {
+    await scaleResource(currentType.value.gvr, currentResource.value.metadata.namespace || '', currentResource.value.metadata.name, scaleReplicas.value)
+    ElMessage.success('扩缩容成功')
+    scaleDialogVisible.value = false
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '扩缩容失败')
+  }
+}
+// 滚动重启
+const handleRestart = async (row: any) => {
+  if (!currentType.value) return
+  try {
+    await restartResource(currentType.value.gvr, row.metadata.namespace || '', row.metadata.name)
+    ElMessage.success('重启成功')
+    fetchList()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '重启失败')
+  }
+}
+
+// Header 全局命名空间变化时联动刷新列表
+watch(() => namespaceStore.currentNamespace, () => fetchList())
+
 onMounted(() => {
   initFromRoute()
-  fetchNamespaces()
   fetchList()
 })
 </script>
@@ -250,6 +269,8 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 .header-actions {
   display: flex;

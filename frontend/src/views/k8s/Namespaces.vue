@@ -2,13 +2,15 @@
   <div class="namespaces-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>Namespace 列表</span>
+        <ListToolbar title="Namespace 列表" :loading="loading" @refresh="fetchNamespaces">
+          <template #filters>
+            <el-input v-model="searchKeyword" placeholder="搜索名称" clearable style="width: 160px" />
+          </template>
           <el-button type="primary" @click="showCreateDialog">创建 Namespace</el-button>
-        </div>
+        </ListToolbar>
       </template>
 
-      <el-table :data="namespaces" style="width: 100%" v-loading="loading">
+      <el-table :data="filteredNamespaces" style="width: 100%" v-loading="loading">
         <el-table-column prop="name" label="名称" width="300" />
         <el-table-column prop="status" label="状态" width="150">
           <template #default="scope">
@@ -26,8 +28,9 @@
             <el-tag size="small" type="info">ConfigMaps: {{ scope.row.configmaps || 0 }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" fixed="right" width="200">
+        <el-table-column label="操作" fixed="right" width="240">
           <template #default="scope">
+            <el-button size="small" @click="yamlDrawer?.open(NAMESPACE_GVR, '', scope.row.name)">YAML</el-button>
             <el-popconfirm
               title="确定删除这个Namespace吗?这将删除该命名空间下的所有资源!"
               @confirm="handleDelete(scope.row)"
@@ -53,19 +56,31 @@
         <el-button type="primary" @click="handleCreate" :loading="creating">创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- YAML 查看/编辑 -->
+    <YamlDrawer ref="yamlDrawer" @saved="fetchNamespaces" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getNamespaces, createNamespace, deleteNamespace, getPods, getDeployments, getServices, getConfigMaps } from '@/apis/k8s'
+import type { GVR } from '@/apis/k8s'
 import { useNamespaceStore } from '@/stores/namespace'
+import ListToolbar from '@/components/ListToolbar.vue'
+import YamlDrawer from '@/components/YamlDrawer.vue'
 
 const namespaceStore = useNamespaceStore()
+const NAMESPACE_GVR: GVR = { version: 'v1', resource: 'namespaces' }
+const yamlDrawer = ref()
 
 const loading = ref(false)
 const namespaces = ref<any[]>([])
+const searchKeyword = ref('')
+const filteredNamespaces = computed(() => namespaces.value.filter((r: any) =>
+  !searchKeyword.value || (r.name || '').toLowerCase().includes(searchKeyword.value.toLowerCase())
+))
 const createDialogVisible = ref(false)
 const creating = ref(false)
 
@@ -211,5 +226,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 </style>

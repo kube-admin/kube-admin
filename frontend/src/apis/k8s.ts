@@ -440,6 +440,22 @@ export const deleteResource = (gvr: GVR, namespace: string, name: string) => {
   return request.delete(`/api/v1/resources/${name}`, { params })
 }
 
+// 通用 workload 扩缩容（Deployment/StatefulSet/DaemonSet/ReplicaSet）
+export const scaleResource = (gvr: GVR, namespace: string, name: string, replicas: number) => {
+  const clusterId = getCurrentClusterId()
+  const params = gvrParams(gvr, { namespace, replicas })
+  if (clusterId) params.cluster_id = clusterId
+  return request.put(`/api/v1/resources/${name}/scale`, null, { params })
+}
+
+// 通用 workload 滚动重启
+export const restartResource = (gvr: GVR, namespace: string, name: string) => {
+  const clusterId = getCurrentClusterId()
+  const params = gvrParams(gvr, { namespace })
+  if (clusterId) params.cluster_id = clusterId
+  return request.put(`/api/v1/resources/${name}/restart`, null, { params })
+}
+
 // 应用 YAML（创建或更新任意资源）
 export const applyResource = (yaml: string) => {
   const clusterId = getCurrentClusterId()

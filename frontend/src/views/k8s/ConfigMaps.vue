@@ -2,23 +2,15 @@
   <div class="configmaps-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>ConfigMap 列表</span>
-          <div>
-            <el-select v-model="namespaceStore.currentNamespace" placeholder="选择命名空间" style="width: 200px; margin-right: 10px">
-              <el-option
-                v-for="ns in namespaces"
-                :key="ns.name"
-                :label="ns.name"
-                :value="ns.name"
-              />
-            </el-select>
-            <el-button type="primary" @click="showCreateDialog">创建 ConfigMap</el-button>
-          </div>
-        </div>
+        <ListToolbar title="ConfigMap 列表" :loading="loading" @refresh="fetchConfigMaps">
+          <template #filters>
+            <el-input v-model="searchKeyword" placeholder="搜索名称" clearable style="width: 160px" />
+          </template>
+          <el-button type="primary" @click="showCreateDialog">创建 ConfigMap</el-button>
+        </ListToolbar>
       </template>
 
-      <el-table :data="configMaps" style="width: 100%" v-loading="loading">
+      <el-table :data="filteredConfigMaps" style="width: 100%" v-loading="loading">
         <el-table-column prop="name" label="名称" width="250" />
         <el-table-column prop="namespace" label="命名空间" width="150" />
         <el-table-column label="数据项" width="100">
@@ -27,8 +19,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="creation_timestamp" label="创建时间" width="180" />
-        <el-table-column label="操作" fixed="right" width="250">
+        <el-table-column label="操作" fixed="right" width="300">
           <template #default="scope">
+            <el-button size="small" @click="yamlDrawer?.open(CONFIGMAP_GVR, scope.row.namespace, scope.row.name)">YAML</el-button>
             <el-button size="small" @click="viewDetail(scope.row)">查看</el-button>
             <el-button size="small" type="warning" @click="editConfigMap(scope.row)">编辑</el-button>
             <el-popconfirm
@@ -105,11 +98,14 @@
         </el-table>
       </div>
     </el-dialog>
+
+    <!-- YAML 查看/编辑 -->
+    <YamlDrawer ref="yamlDrawer" @saved="fetchConfigMaps" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   getConfigMaps,
@@ -121,9 +117,16 @@ import {
 import type { AxiosResponse } from 'axios'
 import type { Result } from '@/apis/client/request'
 import { useNamespaceStore } from '@/stores/namespace'
+import ListToolbar from '@/components/ListToolbar.vue'
+import YamlDrawer from '@/components/YamlDrawer.vue'
+import type { GVR } from '@/apis/k8s'
 
 const loading = ref(false)
 const configMaps = ref<any[]>([])
+const searchKeyword = ref('')
+const filteredConfigMaps = computed(() => configMaps.value.filter((r: any) =>
+  !searchKeyword.value || (r.name || '').toLowerCase().includes(searchKeyword.value.toLowerCase())
+))
 const namespaces = ref<any[]>([])
 const currentNamespace = ref('default')
 const dialogVisible = ref(false)
@@ -139,6 +142,8 @@ const form = ref({
 })
 
 const namespaceStore = useNamespaceStore()
+const CONFIGMAP_GVR: GVR = { version: 'v1', resource: 'configmaps' }
+const yamlDrawer = ref()
 
 const fetchNamespaces = async () => {
   try {
@@ -278,5 +283,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 </style>

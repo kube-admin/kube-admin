@@ -1,5 +1,6 @@
 // index.ts
 import axios from 'axios'
+import router from '@/router/index'
 import type {
   AxiosInstance,
   AxiosRequestConfig,
@@ -47,6 +48,10 @@ export class Request {
         return res
       },
       (err: any) => {
+        // 无响应（网络错误/超时）时直接抛出，避免访问 err.response.status 崩溃
+        if (!err.response) {
+          return Promise.reject(err)
+        }
         // 这里用来处理http常见错误，进行全局提示
         let message = ''
         switch (err.response.status) {
@@ -54,8 +59,13 @@ export class Request {
             message = '请求错误(400)'
             break
           case 401:
-            message = '未授权，请重新登录(401)'
-            // 这里可以做清空storage并跳转到登录页的操作
+            message = '登录已过期，请重新登录(401)'
+            // 清除登录态并跳转登录页（已在登录页则不重复跳转）
+            localStorage.removeItem('token')
+            localStorage.removeItem('user')
+            if (router.currentRoute.value.path !== '/login') {
+              router.replace('/login')
+            }
             break
           case 403:
             message = '拒绝访问(403)'

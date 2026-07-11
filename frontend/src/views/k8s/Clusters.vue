@@ -2,14 +2,16 @@
   <div class="clusters-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>Clusters 列表</span>
+        <ListToolbar title="Clusters 列表" :loading="loading" @refresh="fetchClusters">
+          <template #filters>
+            <el-input v-model="searchKeyword" placeholder="搜索名称" clearable style="width: 160px" />
+          </template>
           <el-button v-permission="'admin'" type="primary" @click="showCreateDialog">创建 Clusters</el-button>
-        </div>
+        </ListToolbar>
       </template>
 
       <!-- 集群列表 -->
-      <el-table :data="clusters" style="width: 100%" v-loading="loading">
+      <el-table :data="filteredClusters" style="width: 100%" v-loading="loading">
         <el-table-column prop="name" label="名称" width="150"></el-table-column>
         <el-table-column prop="description" label="描述"></el-table-column>
         <el-table-column prop="status" label="状态" width="100">
@@ -122,9 +124,14 @@ import {
   deleteCluster,
   testConnectionById
 } from '@/apis/k8s/clusters'
+import ListToolbar from '@/components/ListToolbar.vue'
 
 // 数据状态
 const clusters = ref<any[]>([])
+const searchKeyword = ref('')
+const filteredClusters = computed(() => clusters.value.filter((r: any) =>
+  !searchKeyword.value || (r.name || '').toLowerCase().includes(searchKeyword.value.toLowerCase())
+))
 const loading = ref(false)
 const submitting = ref(false)
 
@@ -264,6 +271,8 @@ const submitCluster = async () => {
       }
       dialogVisible.value = false
       fetchClusters() // 刷新列表
+      // 通知 Header 等组件集群列表已变更，刷新集群下拉
+      window.dispatchEvent(new CustomEvent('clustersChanged'))
     } catch (error: any) {
       ElMessage.error(error.response?.data?.message || '操作失败')
     } finally {
@@ -287,6 +296,8 @@ const deleteClusterConfirm = (cluster: any) => {
       await deleteCluster(cluster.id)
       ElMessage.success('集群删除成功')
       fetchClusters() // 刷新列表
+      // 通知 Header 等组件集群列表已变更，刷新集群下拉
+      window.dispatchEvent(new CustomEvent('clustersChanged'))
     } catch (error: any) {
       ElMessage.error(error.response?.data?.message || '删除失败')
     }
@@ -349,6 +360,8 @@ watch(() => clusterForm.config_content, (newVal) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .test-success {

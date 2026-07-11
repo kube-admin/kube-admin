@@ -19,6 +19,13 @@ const router = createRouter({
       children: menus
     },
     {
+      // Pod 终端全屏页：顶级路由，脱离 layout（无侧边栏），纯全屏交互
+      path: '/k8s/pods/:name/terminal',
+      name: 'podTerminal',
+      component: () => import('../views/k8s/PodTerminal.vue'),
+      meta: {}
+    },
+    {
       path: '/:catchAll(.*)',
       redirect: '/404',
       meta: {}

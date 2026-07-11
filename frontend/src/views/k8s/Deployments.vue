@@ -2,24 +2,20 @@
   <div class="deployments-container">
     <el-card>
       <template #header>
-        <div class="card-header">
-          <span>Deployment 列表</span>
-          <div>
-            <el-select v-model="namespaceStore.currentNamespace" placeholder="选择命名空间" style="width: 200px; margin-right: 10px">
-              <el-option
-                v-for="ns in namespaceStore.namespaces"
-                :key="ns.name"
-                :label="ns.name"
-                :value="ns.name"
-              />
-            </el-select>
-            <el-button type="primary" @click="showCreateDialog">创建 Deployment</el-button>
-          </div>
-        </div>
+        <ListToolbar title="Deployment 列表" :loading="loading" @refresh="fetchDeployments">
+          <template #filters>
+            <el-input v-model="searchKeyword" placeholder="搜索名称" clearable style="width: 160px" />
+          </template>
+          <el-button type="primary" @click="showCreateDialog">创建 Deployment</el-button>
+        </ListToolbar>
       </template>
 
-      <el-table :data="deployments" style="width: 100%" v-loading="loading">
-        <el-table-column prop="name" label="名称" width="250" />
+      <el-table :data="filteredDeployments" style="width: 100%" v-loading="loading">
+        <el-table-column label="名称" width="250">
+          <template #default="scope">
+            <router-link :to="{ path: '/k8s/deployments/' + scope.row.name, query: { namespace: scope.row.namespace } }" class="name-link">{{ scope.row.name }}</router-link>
+          </template>
+        </el-table-column>
         <el-table-column prop="namespace" label="命名空间" width="150" />
         <el-table-column label="副本数" width="180">
           <template #default="scope">
@@ -28,9 +24,11 @@
         </el-table-column>
         <el-table-column prop="strategy" label="更新策略" width="150" />
         <el-table-column prop="creation_timestamp" label="创建时间" width="180" />
-        <el-table-column label="操作" fixed="right" width="300">
+        <el-table-column label="操作" fixed="right" width="360">
           <template #default="scope">
+            <el-button size="small" @click="yamlDrawer?.open(DEPLOY_GVR, scope.row.namespace, scope.row.name)">YAML</el-button>
             <el-button size="small" @click="showScaleDialog(scope.row)">扩缩容</el-button>
+            <el-button size="small" @click="openTerminal(scope.row)">终端</el-button>
             <el-button size="small" type="warning" @click="handleRestart(scope.row)">
               重启
             </el-button>
@@ -75,25 +73,62 @@
         <el-button type="primary" @click="handleCreate" :loading="creating">创建</el-button>
       </template>
     </el-dialog>
+
+    <!-- YAML 查看/编辑 -->
+    <YamlDrawer ref="yamlDrawer" @saved="fetchDeployments" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   getDeployments,
   deleteDeployment,
   scaleDeployment,
   restartDeployment,
-  getNamespaces
+  createDeploymentFromYaml,
+  getNamespaces,
+  getPods
 } from '@/apis/k8s'
+import { useRouter } from 'vue-router'
 import { useNamespaceStore } from '@/stores/namespace'
+import ListToolbar from '@/components/ListToolbar.vue'
+import YamlDrawer from '@/components/YamlDrawer.vue'
+import type { GVR } from '@/apis/k8s'
 
 const namespaceStore = useNamespaceStore()
+const DEPLOY_GVR: GVR = { group: 'apps', version: 'v1', resource: 'deployments' }
+const yamlDrawer = ref()
+const router = useRouter()
+
+// 打开该 Deployment 下首个 Running Pod 的终端（跳转全屏页）
+const openTerminal = async (deploy: any) => {
+  try {
+    const res: any = await getPods(deploy.namespace)
+    const target = (res.data?.data || []).find(
+      (p: any) => p.name.startsWith(deploy.name + '-') && p.status === 'Running'
+    )
+    if (!target) {
+      ElMessage.warning('未找到该 Deployment 下 Running 的 Pod')
+      return
+    }
+    const href = router.resolve({
+      path: `/k8s/pods/${target.name}/terminal`,
+      query: { namespace: deploy.namespace, container: target.containers?.[0]?.name || '' }
+    }).href
+    window.open(href, '_blank')
+  } catch (e) {
+    ElMessage.error('获取 Pod 列表失败')
+  }
+}
 
 const loading = ref(false)
 const deployments = ref<any[]>([])
+const searchKeyword = ref('')
+const filteredDeployments = computed(() => deployments.value.filter((d: any) =>
+  !searchKeyword.value || (d.name || '').toLowerCase().includes(searchKeyword.value.toLowerCase())
+))
 const scaleDialogVisible = ref(false)
 const scaleReplicas = ref(1)
 const currentDeployment = ref<any>(null)
@@ -211,9 +246,8 @@ const handleCreate = async () => {
   
   creating.value = true
   try {
-    // 注意：这里需要修改 createDeploymentFromYaml 函数的导入
-    ElMessage.warning('创建 Deployment 功能待实现')
-    // await createDeploymentFromYaml(deploymentYaml.value)
+    await createDeploymentFromYaml(deploymentYaml.value)
+    ElMessage.success('创建成功')
     createDialogVisible.value = false
     fetchDeployments()
   } catch (error: any) {
@@ -259,5 +293,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  font-size: 16px;
+  font-weight: 600;
 }
 </style>
