@@ -51,11 +51,13 @@ const namespace = computed(() => String(route.query.namespace || 'default'))
 const kind = computed(() => {
   if (route.path.includes('/statefulsets/')) return 'StatefulSet'
   if (route.path.includes('/daemonsets/')) return 'DaemonSet'
+  if (route.path.includes('/replicasets/')) return 'ReplicaSet'
   return ''
 })
 const gvr = computed<GVR>(() => {
   if (kind.value === 'StatefulSet') return { group: 'apps', version: 'v1', resource: 'statefulsets' }
   if (kind.value === 'DaemonSet') return { group: 'apps', version: 'v1', resource: 'daemonsets' }
+  if (kind.value === 'ReplicaSet') return { group: 'apps', version: 'v1', resource: 'replicasets' }
   return { version: 'v1', resource: '' }
 })
 

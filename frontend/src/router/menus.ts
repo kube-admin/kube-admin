@@ -305,6 +305,12 @@ const menus = [
     meta: { showMenu: false }
   },
   {
+    path: '/k8s/replicasets/:name',
+    name: 'replicasetDetail',
+    component: () => import('@/views/k8s/WorkloadDetail.vue'),
+    meta: { showMenu: false }
+  },
+  {
     path: '/k8s/services/:name',
     name: 'serviceDetail',
     component: () => import('@/views/k8s/ServiceDetail.vue'),

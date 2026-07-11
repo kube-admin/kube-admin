@@ -103,7 +103,7 @@ const route = useRoute()
 const currentTypeKey = ref('')
 const currentType = computed(() => RESOURCE_TYPES.find((t) => t.key === currentTypeKey.value))
 
-// 资源详情页链接（仅 StatefulSet/DaemonSet/Service 首批有详情页，其余保持纯文本）
+// 资源详情页链接（StatefulSet/DaemonSet/ReplicaSet/Service 有详情页，其余保持纯文本）
 const detailPath = (row: any): string => {
   const res = currentType.value?.gvr?.resource
   if (!res) return ''
@@ -111,6 +111,7 @@ const detailPath = (row: any): string => {
   const name = row.metadata?.name
   if (res === 'statefulsets') return `/k8s/statefulsets/${name}?namespace=${ns}`
   if (res === 'daemonsets') return `/k8s/daemonsets/${name}?namespace=${ns}`
+  if (res === 'replicasets') return `/k8s/replicasets/${name}?namespace=${ns}`
   if (res === 'services') return `/k8s/services/${name}?namespace=${ns}`
   return ''
 }
