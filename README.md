@@ -54,7 +54,7 @@ make test        # 运行前后端测试
 ### 方式三：Docker
 
 ```bash
-./start-docker.sh   # 或 docker-compose up --build
+make docker-up   # 经 deploy/deploy.sh 构建并启动（含密钥校验 + 健康等待）
 ```
 
 ## ⚙️ 配置
@@ -171,6 +171,10 @@ kube-admin/
 ## 🤝 贡献
 
 欢迎 Issue 与 PR，请阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+
+## 📄 更新日志
+
+见 [docs-site/guide/changelog.md](./docs-site/guide/changelog.md)。
 
 ## 📄 License
 

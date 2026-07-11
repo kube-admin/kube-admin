@@ -5,7 +5,7 @@ hero:
   name: Kube Admin
   text: 多集群 Kubernetes 管理平台
   image:
-    src: /hero.svg
+    src: /hero.png
     alt: Kube Admin 集群总览仪表盘
   tagline: Vue 3 + Go + client-go，资源管理、实时监控、Web 终端、YAML 工作台、RBAC 鉴权一站式
   actions:

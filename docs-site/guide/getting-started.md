@@ -39,9 +39,7 @@ make test         # 运行前后端测试
 ### 方式三：Docker 一键
 
 ```bash
-./start-docker.sh
-# 或
-docker-compose up --build
+make docker-up   # 经 deploy/deploy.sh 构建并启动（含密钥校验 + 健康等待）
 ```
 
 ## 默认账号

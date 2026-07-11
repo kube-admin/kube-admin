@@ -1,78 +1,113 @@
 # 部署指南
 
-Kube Admin 支持本地、Docker、Kubernetes 三种部署方式。
+Kube Admin 提供三种部署方式，部署文件统一在 `deploy/` 目录：
 
-## 前置：配置密钥
+| 方式 | 适用 | 入口 |
+|------|------|------|
+| **Docker Compose** | 单机 / Demo / 个人 | `make docker-up`（→ `deploy/deploy.sh`） |
+| **Kubernetes 原生清单** | 集群内直接 apply | `kubectl apply -f deploy/k8s/` |
+| **Helm Chart** | 多环境 / 参数化 | `helm install ... deploy/helm/kube-admin` |
 
-生产环境必须设置：
-
-```bash
-export JWT_SECRET="<强随机字符串>"
-export ENCRYPT_KEY="<强随机字符串>"   # 集群凭据加密密钥
-# export TLS_SKIP_VERIFY=false        # 默认即校验 TLS
-```
-
-::: danger 密钥不可丢失
-`ENCRYPT_KEY` 是解密集群凭据的唯一依据。密钥丢失将导致已存的集群凭据无法解密、集群连接失败。请妥善备份。
+::: tip 镜像来源
+三种方式共用 CI 推送到 ghcr.io 的镜像（`ghcr.io/kube-admin/kube-admin-backend` / `-frontend`）。push 到 main 或打 tag 后由 `Release Images` workflow 自动构建。
 :::
 
-## Docker Compose
+## 前置：密钥
+
+生产环境必须设置强随机密钥：
 
 ```bash
-# 编辑 .env 设置 JWT_SECRET / ENCRYPT_KEY
-docker-compose up -d --build
+openssl rand -base64 32   # 用作 JWT_SECRET
+openssl rand -base64 32   # 用作 ENCRYPT_KEY
 ```
 
-默认暴露前端 `:80`（或 :3000）、后端 `:8080`。前端容器（nginx）反向代理 `/api` 到后端。
+::: danger ENCRYPT_KEY 不可丢失
+`ENCRYPT_KEY` 是解密集群凭据的唯一依据。丢失将导致已存的集群凭据无法解密。请妥善备份。
+:::
 
-## Kubernetes 部署
+## 一、Docker Compose（单机）
 
-### 1. 后端 Deployment
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: kube-admin-backend
-spec:
-  replicas: 2
-  selector:
-    matchLabels: { app: kube-admin-backend }
-  template:
-    metadata:
-      labels: { app: kube-admin-backend }
-    spec:
-      serviceAccountName: kube-admin-sa   # 集群内访问当前集群
-      containers:
-      - name: backend
-        image: your-registry/kube-admin-backend:latest
-        ports: [{ containerPort: 8080 }]
-        env:
-        - { name: JWT_SECRET,  valueFrom: { secretKeyRef: { name: kube-admin-secret, key: jwt-secret } } }
-        - { name: ENCRYPT_KEY, valueFrom: { secretKeyRef: { name: kube-admin-secret, key: encrypt-key } } }
-        - { name: GIN_MODE, value: "release" }
-        livenessProbe:  { httpGet: { path: /healthz, port: 8080 }, initialDelaySeconds: 10, periodSeconds: 20 }
-        readinessProbe: { httpGet: { path: /readyz,   port: 8080 }, initialDelaySeconds: 5,  periodSeconds: 10 }
+```bash
+cd deploy
+cp .env.example .env
+# 编辑 .env：填写 JWT_SECRET / ENCRYPT_KEY（必填）；按需设 DB_DRIVER/DB_DSN
+bash deploy.sh up          # 或退回根目录 make docker-up
 ```
 
-### 2. 前端
+`deploy.sh` 会校验密钥、构建并启动、轮询 `/healthz` 健康检查。
 
-前端构建产物为静态文件，用 nginx 托管并将 `/api`、WebSocket 反向代理到后端 Service。
+- 前端：http://localhost
+- 后端：http://localhost:8080
+- 登录：`admin / admin123`（首次登录后立即改密）
 
-### 3. ServiceAccount 权限
+其他命令：`bash deploy.sh down | restart | logs [backend|frontend] | ps`。
 
-集群内部署时后端自动使用 ServiceAccount 访问**当前集群**。请按最小权限原则为其绑定 Role/ClusterRole（如只读 + 指定资源的写权限）。若还需管理**外部集群**，在界面通过 kubeconfig/Token 接入即可（凭据加密存储）。
+## 二、Kubernetes（集群内部署）
 
-### 4. 数据库
+manifests 已在仓库内，直接 apply：
 
-默认使用 SQLite（`DB_PATH`）。多副本部署时，请替换为外部 MySQL/PostgreSQL（更换 GORM 驱动即可），避免多实例写同一文件。
+```bash
+# 1. 必改：编辑 deploy/k8s/secret.yaml，替换 jwt-secret / encrypt-key 占位
+kubectl apply -f deploy/k8s/
+```
 
-## 健康检查
+镜像默认引用 ghcr.io 公开镜像。默认集群通过 **ServiceAccount** 自动接入（后端 kubeconfig 为空时走 InClusterConfig），无需额外配置即可管理当前集群。
+
+未启用 Ingress 时访问：
+```bash
+kubectl -n kube-admin port-forward svc/kube-admin-frontend 8080:80
+```
+
+### 集群内 vs 管理外部集群
+
+| 场景 | 方式 |
+|------|------|
+| 管当前集群 | 自动用 Pod 的 ServiceAccount，零配置 |
+| 管外部集群 | 登录后界面「集群管理」→ 填 kubeconfig/Token（凭据 AES-256-GCM 加密入库） |
+
+## 三、Helm
+
+```bash
+helm install kube-admin deploy/helm/kube-admin \
+  --create-namespace -n kube-admin \
+  --set secrets.jwtSecret="$(openssl rand -base64 32)" \
+  --set secrets.encryptKey="$(openssl rand -base64 32)"
+```
+
+常用参数：`ingress.enabled`、`database.driver`、`backend.replicas`、`serviceAccount.clusterRole.wide`。详见 `deploy/helm/kube-admin/README.md`。
+
+::: warning 生产密钥
+Helm values 中的密钥仅用于快速开始。生产环境建议用 **ExternalSecrets Operator** 或 **sealed-secrets** 外部化管理，避免密钥进 Git。
+:::
+
+## 数据库
+
+默认 SQLite（单机/单副本，数据卷持久化）。接入现有 MySQL/PostgreSQL：
+
+```bash
+# 以 compose 为例（.env）：
+DB_DRIVER=mysql
+DB_DSN=user:pass@tcp(host:3306)/kubeadm?charset=utf8mb4&parseTime=True&loc=Local
+# 或 postgres：
+DB_DRIVER=postgres
+DB_DSN=host=pg user=kubeadmin password=secret dbname=kubeadm port=5432 sslmode=disable TimeZone=Asia/Shanghai
+```
+
+::: tip 多副本
+SQLite 为单写者，多副本部署请切换到外部 MySQL/PostgreSQL，并将 backend 副本数调大、策略改 RollingUpdate（K8s/Helm 均已预留参数）。
+:::
+
+`AutoMigrate` 会在首次启动自动建表，无需手动 DDL。
+
+## 运行时调优
+
+- `K8S_REQUEST_TIMEOUT`：k8s API 单次请求超时（秒，默认 `10`）。某集群不可达时让请求快速失败，而非 client-go 默认挂起 30s 拖垮前端体验。网络较差或多跳代理环境可适当调大。
+
+## 健康检查与优雅关闭
 
 - `GET /healthz`：存活探针
 - `GET /readyz`：就绪探针
-
-后端支持优雅关闭：收到 `SIGINT` / `SIGTERM` 后等待最多 10 秒处理完在途请求再退出。
+- 收到 SIGINT/SIGTERM 后等待最多 10s 处理完在途请求再退出
 
 ## 下一步
 
