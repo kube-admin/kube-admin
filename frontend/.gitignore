@@ -29,3 +29,8 @@ coverage
 .chat
 auto-imports.d.ts
 components.d.ts
+
+# Playwright
+/playwright-report/
+/test-results/
+/e2e/.auth/

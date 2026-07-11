@@ -60,3 +60,6 @@ jobs:
         run: npm run test
       - name: Build
         run: npm run build
+      # E2E（`npm run test:e2e`，Playwright）未纳入 CI：用例需真实 k8s 集群 + 后端，
+      # GitHub-hosted runner 无集群，跑通也不代表线上可用。待引入 kind 集群后再开 CI E2E job。
+      # 本地运行方式见 frontend/e2e/README.md。
