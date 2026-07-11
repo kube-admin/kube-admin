@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kube-admin/kube-admin/backend/internal/model"
@@ -144,4 +145,47 @@ func (a *ResourceAPI) Patch(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, model.SuccessResponse(obj))
+}
+
+// ScaleResource 通用扩缩容（workload：Deployment/StatefulSet/DaemonSet/ReplicaSet）
+func (a *ResourceAPI) ScaleResource(c *gin.Context) {
+	rs, exists := c.Get("resource_service")
+	if !exists {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse(500, "服务未初始化"))
+		return
+	}
+	gvr, ns := parseGVR(c)
+	if !validateGVR(gvr) {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse(400, "version 和 resource 参数必填"))
+		return
+	}
+	replicas, err := strconv.Atoi(c.Query("replicas"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse(400, "replicas 参数无效"))
+		return
+	}
+	if err := rs.(*service.ResourceService).Scale(gvr, ns, c.Param("name"), int32(replicas)); err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse(500, err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, model.SuccessResponse(nil))
+}
+
+// RestartResource 通用滚动重启（workload）
+func (a *ResourceAPI) RestartResource(c *gin.Context) {
+	rs, exists := c.Get("resource_service")
+	if !exists {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse(500, "服务未初始化"))
+		return
+	}
+	gvr, ns := parseGVR(c)
+	if !validateGVR(gvr) {
+		c.JSON(http.StatusBadRequest, model.ErrorResponse(400, "version 和 resource 参数必填"))
+		return
+	}
+	if err := rs.(*service.ResourceService).Restart(gvr, ns, c.Param("name")); err != nil {
+		c.JSON(http.StatusInternalServerError, model.ErrorResponse(500, err.Error()))
+		return
+	}
+	c.JSON(http.StatusOK, model.SuccessResponse(nil))
 }

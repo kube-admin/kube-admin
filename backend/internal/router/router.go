@@ -93,6 +93,9 @@ func SetupRouter(defaultK8sClient *k8s.Client, k8sManager *k8s.Manager) *gin.Eng
 			k8sGroup.DELETE("/resources/:name", resourceAPI.Delete)
 			k8sGroup.POST("/resources/apply", resourceAPI.Apply)
 			k8sGroup.PATCH("/resources/:name", resourceAPI.Patch)
+			// 通用 workload 扩缩容/滚动重启（Deployment/StatefulSet/DaemonSet/ReplicaSet）
+			k8sGroup.PUT("/resources/:name/scale", resourceAPI.ScaleResource)
+			k8sGroup.PUT("/resources/:name/restart", resourceAPI.RestartResource)
 
 			// Namespace
 			namespaceAPI := api.NewNamespaceAPI(nil) // 将在中间件中注入正确的客户端

@@ -15,6 +15,7 @@ import (
 	"github.com/kube-admin/kube-admin/backend/database"
 	"github.com/kube-admin/kube-admin/backend/internal/model"
 	"github.com/kube-admin/kube-admin/backend/internal/router"
+	"github.com/kube-admin/kube-admin/backend/internal/web"
 	"github.com/kube-admin/kube-admin/backend/pkg/crypto"
 	"github.com/kube-admin/kube-admin/backend/pkg/k8s"
 )
@@ -30,8 +31,8 @@ func main() {
 		log.Fatalf("Failed to init crypto: %v", err)
 	}
 
-	// 3. 初始化数据库（文件持久化）
-	database.InitDB(cfg.DBPath)
+	// 3. 初始化数据库（支持 sqlite/mysql/postgres）
+	database.InitDB(cfg.DBDriver, cfg.DBDSN, cfg.DBPath)
 
 	// 4. 创建 K8s 客户端管理器与默认客户端
 	k8sManager := k8s.NewManager()
@@ -46,6 +47,9 @@ func main() {
 
 	// 5. 设置路由（含健康检查）
 	r := router.SetupRouter(defaultK8sClient, k8sManager)
+
+	// 5.1 单镜像形态：内嵌前端时注册 SPA 托管（-tags embed 构建生效；普通构建 no-op）
+	web.RegisterSPA(r)
 
 	// 6. 启动 HTTP 服务，支持优雅关闭
 	srv := &http.Server{

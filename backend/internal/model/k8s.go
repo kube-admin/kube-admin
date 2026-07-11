@@ -10,14 +10,23 @@ type K8sResource struct {
 	ResourceVersion   string            `json:"resource_version"`
 }
 
+// OwnerRef 资源的顶层归属（如 Deployment/StatefulSet/DaemonSet）
+type OwnerRef struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
 // PodInfo Pod信息
 type PodInfo struct {
 	K8sResource
-	Status     string            `json:"status"`
-	PodIP      string            `json:"pod_ip"`
-	NodeName   string            `json:"node_name"`
-	Containers []ContainerInfo   `json:"containers"`
+	Status      string            `json:"status"`
+	PodIP       string            `json:"pod_ip"`
+	NodeName    string            `json:"node_name"`
+	CpuUsage    string            `json:"cpu_usage,omitempty"`    // Pod 级 CPU（汇总各容器，需 metrics-server）
+	MemoryUsage string            `json:"memory_usage,omitempty"` // Pod 级内存
+	Containers  []ContainerInfo   `json:"containers"`
 	Conditions []PodCondition    `json:"conditions"`
+	Owner      *OwnerRef         `json:"owner,omitempty"` // 所属顶层工作负载
 }
 
 // ContainerInfo 容器信息

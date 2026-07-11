@@ -132,3 +132,30 @@ func (s *ResourceService) Patch(gvr schema.GroupVersionResource, namespace, name
 	}
 	return iface.Patch(context.TODO(), name, patchType, patchData, metav1.PatchOptions{})
 }
+
+// Scale 通用扩缩容（适用于含 spec.replicas 的 workload：Deployment/StatefulSet/DaemonSet/ReplicaSet）
+func (s *ResourceService) Scale(gvr schema.GroupVersionResource, namespace, name string, replicas int32) error {
+	iface, err := s.namespacedResource(gvr, namespace)
+	if err != nil {
+		return err
+	}
+	u, err := iface.Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	spec, _ := u.Object["spec"].(map[string]interface{})
+	if spec == nil {
+		spec = map[string]interface{}{}
+	}
+	spec["replicas"] = replicas
+	u.Object["spec"] = spec
+	_, err = iface.Update(context.TODO(), u, metav1.UpdateOptions{})
+	return err
+}
+
+// Restart 通用滚动重启（向 spec.template.metadata.annotations 注入 restartedAt 触发滚动更新）
+func (s *ResourceService) Restart(gvr schema.GroupVersionResource, namespace, name string) error {
+	patchData := fmt.Sprintf(`{"spec":{"template":{"metadata":{"annotations":{"kubectl.kubernetes.io/restartedAt":"%s"}}}}}`, metav1.Now().Format("2006-01-02T15:04:05Z"))
+	_, err := s.Patch(gvr, namespace, name, types.MergePatchType, []byte(patchData))
+	return err
+}

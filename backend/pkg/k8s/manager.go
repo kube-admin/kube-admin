@@ -84,6 +84,7 @@ func (m *Manager) createClient(cluster *model.Cluster) (*Client, error) {
 		return nil, fmt.Errorf("no valid configuration found for cluster")
 	}
 
+	applyConfigDefaults(restConfig)
 	clientSet, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes client: %v", err)

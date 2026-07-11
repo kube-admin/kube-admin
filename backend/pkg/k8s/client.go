@@ -1,12 +1,14 @@
 package k8s
 
 import (
+	"os"
+	"path/filepath"
+
+	"github.com/kube-admin/kube-admin/backend/config"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/metrics/pkg/client/clientset/versioned"
-	"os"
-	"path/filepath"
 )
 
 // Client K8s客户端封装
@@ -14,6 +16,16 @@ type Client struct {
 	ClientSet        *kubernetes.Clientset
 	MetricsClientSet *versioned.Clientset
 	Config           *rest.Config
+}
+
+// applyConfigDefaults 统一为 rest.Config 注入全局默认值（请求超时）。
+// 集群不可达时让请求按 K8S_REQUEST_TIMEOUT 快速失败，而非 client-go 默认挂起 30s。
+func applyConfigDefaults(cfg *rest.Config) *rest.Config {
+	if cfg == nil {
+		return cfg
+	}
+	cfg.Timeout = config.App.K8sTimeout
+	return cfg
 }
 
 // NewClient 创建K8s客户端
@@ -42,6 +54,7 @@ func NewClient(kubeconfigPath string) (*Client, error) {
 		}
 	}
 
+	applyConfigDefaults(config)
 	clientSet, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		return nil, err
