@@ -1,0 +1,26 @@
+# golangci-lint v2 配置（CI 用 v2.12.2）
+# 之前缺配置文件导致 CI 的 golangci-lint 报 "unsupported version of the configuration"
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - govet          # go vet 等价，已通过
+    - ineffassign    # 无效赋值
+    - errcheck       # 检查忽略的 error
+    - unused         # 未使用代码
+    - staticcheck    # 综合静态检查（v2 已含 gosimple）
+  settings:
+    errcheck:
+      # Close/WriteMessage 等返回值在既有代码中普遍忽略（defer Close、日志/通知类写入）
+      exclude-functions:
+        - (io.Closer).Close
+        - (*github.com/gorilla/websocket.Conn).Close
+        - (*github.com/gorilla/websocket.Conn).WriteMessage
+  exclusions:
+    # 测试文件允许忽略 error（Init 等故意触发错误路径的用例）
+    paths:
+      - "_test\\.go"
