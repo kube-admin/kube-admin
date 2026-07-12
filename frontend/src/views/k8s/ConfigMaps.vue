@@ -157,7 +157,7 @@ const fetchNamespaces = async () => {
 const fetchConfigMaps = async () => {
   loading.value = true
   try {
-    const res: AxiosResponse<Result<any[]>> = await getConfigMaps(namespaceStore.currentNamespace)
+    const res: AxiosResponse<Result<any[]>> = await getConfigMaps(namespaceStore.effectiveNamespace)
     configMaps.value = res.data.data || []
   } catch (error) {
     ElMessage.error('获取ConfigMap列表失败')

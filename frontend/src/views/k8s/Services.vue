@@ -214,7 +214,7 @@ const fetchNamespaces = async () => {
 const fetchServices = async () => {
   loading.value = true
   try {
-    const res = await getServices(namespaceStore.currentNamespace)
+    const res = await getServices(namespaceStore.effectiveNamespace)
     services.value = res.data.data || []
   } catch (error) {
     ElMessage.error('获取Service列表失败')

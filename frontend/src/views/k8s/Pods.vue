@@ -158,7 +158,7 @@ const fetchNamespaces = async () => {
 const fetchPods = async () => {
   loading.value = true
   try {
-    const res: AxiosResponse<Result<any[]>> = await getPods(namespaceStore.currentNamespace)
+    const res: AxiosResponse<Result<any[]>> = await getPods(namespaceStore.effectiveNamespace)
     pods.value = res.data.data || []
   } catch (error) {
     ElMessage.error('获取Pod列表失败')

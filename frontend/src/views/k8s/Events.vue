@@ -35,7 +35,17 @@
           </template>
         </el-table-column>
         <el-table-column prop="namespace" label="命名空间" width="140" />
-        <el-table-column prop="involved_object" label="关联对象" width="220" show-overflow-tooltip />
+        <el-table-column prop="involved_object" label="关联对象" width="220" show-overflow-tooltip>
+          <template #default="scope">
+            <router-link
+              v-if="objectLink(scope.row)"
+              :to="objectLink(scope.row)"
+              class="obj-link"
+              :title="`查看 ${scope.row.involved_object}`"
+            >{{ scope.row.involved_object }}</router-link>
+            <span v-else>{{ scope.row.involved_object }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="reason" label="原因" width="160" show-overflow-tooltip />
         <el-table-column prop="message" label="消息" show-overflow-tooltip />
         <el-table-column prop="count" label="次数" width="80" align="center" />
@@ -74,6 +84,26 @@ const namespaces = ref<string[]>([])
 const namespace = ref('')
 const typeFilter = ref('')
 const loading = ref(false)
+
+// 关联对象跳转：有详情页的资源（Pod/工作负载/Service）直达详情，其余不生成链接。
+// involved_object 格式为 "Kind/Name"（后端拼装），按 Kind 映射路由。
+const objectLink = (row: EventItem): string => {
+  const obj = row.involved_object
+  if (!obj || !obj.includes('/')) return ''
+  const idx = obj.indexOf('/')
+  const kind = obj.slice(0, idx)
+  const name = obj.slice(idx + 1)
+  const ns = row.namespace
+  const map: Record<string, string> = {
+    Pod: `/k8s/pods/${name}?namespace=${ns}`,
+    Deployment: `/k8s/deployments/${name}?namespace=${ns}`,
+    StatefulSet: `/k8s/statefulsets/${name}?namespace=${ns}`,
+    DaemonSet: `/k8s/daemonsets/${name}?namespace=${ns}`,
+    ReplicaSet: `/k8s/replicasets/${name}?namespace=${ns}`,
+    Service: `/k8s/services/${name}?namespace=${ns}`
+  }
+  return map[kind] || ''
+}
 
 // 类型过滤在前端完成，避免频繁请求后端
 const filteredEvents = computed(() => {
@@ -129,5 +159,12 @@ onMounted(() => {
   text-align: center;
   color: #909399;
   padding: 20px;
+}
+.obj-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+.obj-link:hover {
+  text-decoration: underline;
 }
 </style>

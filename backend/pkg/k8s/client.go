@@ -8,6 +8,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 	"k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -15,6 +16,7 @@ import (
 type Client struct {
 	ClientSet        *kubernetes.Clientset
 	MetricsClientSet *versioned.Clientset
+	AggregatorClient *clientset.Clientset
 	Config           *rest.Config
 }
 
@@ -65,9 +67,15 @@ func NewClient(kubeconfigPath string) (*Client, error) {
 		return nil, err
 	}
 
+	aggregatorClient, err := clientset.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Client{
 		ClientSet:        clientSet,
 		MetricsClientSet: metricsClientSet,
+		AggregatorClient: aggregatorClient,
 		Config:           config,
 	}, nil
 }

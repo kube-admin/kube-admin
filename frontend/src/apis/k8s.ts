@@ -48,6 +48,35 @@ export const deleteNamespace = (name: string) => {
   return request.delete(`/api/v1/namespaces/${name}`, { params })
 }
 
+// 强制清理 finalizers（解除 namespace Terminating 卡死）
+export const finalizeNamespace = (name: string) => {
+  const clusterId = getCurrentClusterId()
+  const params: any = {}
+  if (clusterId) {
+    params.cluster_id = clusterId
+  }
+  return request.post(`/api/v1/namespaces/${name}/finalize`, {}, { params })
+}
+
+// 失效 APIService（诊断 namespace DiscoveryFailed 卡死）
+export const getUnavailableAPIServices = () => {
+  const clusterId = getCurrentClusterId()
+  const params: any = {}
+  if (clusterId) {
+    params.cluster_id = clusterId
+  }
+  return request.get('/api/v1/apiservices/unavailable', { params })
+}
+
+export const deleteAPIService = (name: string) => {
+  const clusterId = getCurrentClusterId()
+  const params: any = {}
+  if (clusterId) {
+    params.cluster_id = clusterId
+  }
+  return request.delete(`/api/v1/apiservices/${name}`, { params })
+}
+
 // Node APIs
 export const getNodes = () => {
   const clusterId = getCurrentClusterId()

@@ -102,6 +102,11 @@ func SetupRouter(defaultK8sClient *k8s.Client, k8sManager *k8s.Manager) *gin.Eng
 			k8sGroup.GET("/namespaces", namespaceAPI.ListNamespaces)
 			k8sGroup.POST("/namespaces", namespaceAPI.CreateNamespace)
 			k8sGroup.DELETE("/namespaces/:name", namespaceAPI.DeleteNamespace)
+			// 强制清理 finalizers（解除 namespace Terminating 卡死）
+			k8sGroup.POST("/namespaces/:name/finalize", namespaceAPI.FinalizeNamespace)
+			// APIService 诊断（namespace DiscoveryFailed 卡死排查）
+			k8sGroup.GET("/apiservices/unavailable", namespaceAPI.ListUnavailableAPIServices)
+			k8sGroup.DELETE("/apiservices/:name", namespaceAPI.DeleteAPIService)
 
 			// Node
 			nodeAPI := api.NewNodeAPI(nil) // 将在中间件中注入正确的客户端

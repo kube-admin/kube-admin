@@ -49,6 +49,8 @@ backend/cmd/data/
 .claude/
 .serena/
 .playwright-mcp/
+.superpowers/
+docs/superpowers/
 
 # ===== 日志 =====
 *.log

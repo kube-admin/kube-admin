@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 // K8sResource K8s资源通用模型
 type K8sResource struct {
 	Name              string            `json:"name"`
@@ -47,6 +49,15 @@ type ResourceUsage struct {
 	MemoryRequest string `json:"memory_request"`
 	CPULimit      string `json:"cpu_limit"`
 	MemoryLimit   string `json:"memory_limit"`
+}
+
+// Condition 通用状态条件
+type Condition struct {
+	Type               string    `json:"type"`
+	Status             string    `json:"status"`
+	Reason             string    `json:"reason,omitempty"`
+	Message            string    `json:"message,omitempty"`
+	LastTransitionTime time.Time `json:"lastTransitionTime,omitempty"`
 }
 
 // PodCondition Pod状态条件
@@ -125,9 +136,21 @@ type NodeCondition struct {
 
 // NamespaceInfo Namespace信息
 type NamespaceInfo struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Age    string `json:"age"`
+	Name              string      `json:"name"`
+	Status            string      `json:"status"`
+	Age               string      `json:"age"`
+	Finalizers        []string    `json:"finalizers,omitempty"`
+	DeletionTimestamp *time.Time  `json:"deletionTimestamp,omitempty"`
+	Conditions        []Condition `json:"conditions,omitempty"`
+}
+
+// APIServiceInfo 失效 APIService 信息（用于诊断 namespace DiscoveryFailed 卡死）
+type APIServiceInfo struct {
+	Name    string `json:"name"`    // 如 v3.projectcalico.org
+	Service string `json:"service"` // 如 calico-apiserver/calico-api
+	Status  string `json:"status"`  // Available condition 的 reason，如 MissingEndpoints
+	Message string `json:"message"`
+	Age     string `json:"age"`
 }
 
 // ConfigMapInfo ConfigMap信息

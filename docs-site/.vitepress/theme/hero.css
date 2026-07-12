@@ -1,0 +1,16 @@
+/* 放大首页 hero 截图：VitePress 默认约束偏小，给容器更多宽度并让图片填充。
+   桌面端生效；移动端维持默认，避免撑破。 */
+@media (min-width: 960px) {
+  .VPHero .image-container {
+    max-width: 60% !important;
+  }
+  .VPHero .image-container .image {
+    width: 100% !important;
+    max-width: none !important;
+  }
+  .VPHero .image-container img {
+    width: 100%;
+    max-height: 420px;
+    object-fit: contain;
+  }
+}

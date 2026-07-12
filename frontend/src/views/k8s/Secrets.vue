@@ -192,7 +192,7 @@ const fetchNamespaces = async () => {
 const fetchSecrets = async () => {
   loading.value = true
   try {
-    const res = await getSecrets(namespaceStore.currentNamespace)
+    const res = await getSecrets(namespaceStore.effectiveNamespace)
     secrets.value = res.data.data || []
   } catch (error) {
     ElMessage.error('获取Secret列表失败')

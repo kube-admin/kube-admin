@@ -47,7 +47,7 @@
         @change="handleNamespaceChange"
         :disabled="!currentClusterId"
       >
-        <el-option key="" label="请选择命名空间" value="" />
+        <el-option key="all" label="所有命名空间" value="all" />
         <el-option
           v-for="namespace in namespaces"
           :key="namespace.name"
@@ -99,7 +99,7 @@ const currentClusterId = ref<number | ''>('')
 
 // 命名空间相关状态
 const namespaces = ref<any[]>([])
-const currentNamespace = ref<string>('')
+const currentNamespace = ref<string>('default')
 
 // 获取命名空间 store
 const namespaceStore = useNamespaceStore()
@@ -165,23 +165,19 @@ const fetchNamespaces = async () => {
     namespaces.value = response.data?.data || []
     namespaceStore.setNamespaces(namespaces.value)
 
-    // 优先保留 URL/store 已恢复的命名空间（若它存在于列表）
+    // 优先保留 URL/store 已恢复的命名空间
     const storedNs = namespaceStore.currentNamespace
+    if (storedNs === 'all') {
+      currentNamespace.value = 'all' // 用户显式选了「所有命名空间」，保留
+      return
+    }
     if (storedNs && namespaces.value.some((ns: any) => ns.name === storedNs)) {
       currentNamespace.value = storedNs
       return
     }
-    // 列表非空但 storedNs 不在列表：回退到 localStorage 或首个命名空间
-    if (namespaces.value.length > 0) {
-      const savedNamespace = localStorage.getItem('currentNamespace')
-      const fallback = savedNamespace && namespaces.value.some((ns: any) => ns.name === savedNamespace)
-        ? savedNamespace
-        : namespaces.value[0].name
-      currentNamespace.value = fallback
-      localStorage.setItem('currentNamespace', fallback)
-      namespaceStore.setCurrentNamespace(fallback)
-    }
-    // 列表为空：保留 URL/store 已恢复的命名空间，不清空（集群可能临时不可达或无权限）
+    // 未选时默认 default（「所有命名空间」保留为手选项）
+    currentNamespace.value = 'default'
+    namespaceStore.setCurrentNamespace('default')
   } catch (error) {
     console.error('获取命名空间列表失败:', error)
     namespaces.value = []

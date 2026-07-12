@@ -1,5 +1,5 @@
 <template>
-  <el-watermark :font="font" :content="['Kube', 'Admin']">
+  <el-watermark :font="font" :content="watermarkContent">
     <el-container>
       <Sidebar />
       <el-container>
@@ -39,4 +39,14 @@ watch(
     immediate: true
   }
 )
+
+// 水印两行：上=当前用户名，下=KubeAdmin（泄露溯源 + 品牌曝光）
+const username = (() => {
+  try {
+    return JSON.parse(localStorage.getItem('user') || '{}')?.username || 'Kube Admin'
+  } catch {
+    return 'Kube Admin'
+  }
+})()
+const watermarkContent = [username, 'KubeAdmin']
 </script>

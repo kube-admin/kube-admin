@@ -44,6 +44,7 @@ export default defineConfig({
           text: '资源管理',
           items: [
             { text: '核心资源', link: '/guide/workloads' },
+            { text: '命名空间管理', link: '/guide/namespace' },
             { text: '资源浏览器与 YAML', link: '/guide/resource-browser' },
             { text: '终端与日志', link: '/guide/terminal-logs' },
             { text: '事件', link: '/guide/events' }

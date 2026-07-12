@@ -48,13 +48,14 @@ func (s *ResourceService) gvrFor(gvk schema.GroupVersionKind) (schema.GroupVersi
 	return mapping.Resource, mapping.Scope.Name() == meta.RESTScopeNameNamespace, nil
 }
 
-// namespacedResource 根据 GVR 构造 dynamic 资源接口，namespace 为空时为集群级
+// namespacedResource 根据 GVR 构造 dynamic 资源接口，namespace 为空或 "all" 时为集群级/所有命名空间
 func (s *ResourceService) namespacedResource(gvr schema.GroupVersionResource, namespace string) (dynamic.ResourceInterface, error) {
 	dyn, err := s.dynamicInterface()
 	if err != nil {
 		return nil, err
 	}
-	if namespace != "" {
+	// "all" 是前端「所有命名空间」哨兵，视为空（k8s all-namespaces）
+	if namespace != "" && namespace != "all" {
 		return dyn.Resource(gvr).Namespace(namespace), nil
 	}
 	return dyn.Resource(gvr), nil

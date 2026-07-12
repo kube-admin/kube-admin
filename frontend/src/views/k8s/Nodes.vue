@@ -10,7 +10,14 @@
       </template>
 
       <el-table :data="filteredNodes" style="width: 100%" v-loading="loading">
-        <el-table-column prop="name" label="名称" width="250" />
+        <el-table-column prop="name" label="名称" width="250">
+          <template #default="scope">
+            <router-link
+              :to="`/k8s/resource-detail/nodes/${scope.row.name}?group=&version=v1`"
+              class="name-link"
+            >{{ scope.row.name }}</router-link>
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" width="120">
           <template #default="scope">
             <el-tag :type="getStatusType(scope.row.status)">
@@ -274,6 +281,13 @@ onBeforeUnmount(() => {
 <style scoped>
 .nodes-container {
   padding: 20px;
+}
+.name-link {
+  color: var(--el-color-primary);
+  text-decoration: none;
+}
+.name-link:hover {
+  text-decoration: underline;
 }
 
 .card-header {

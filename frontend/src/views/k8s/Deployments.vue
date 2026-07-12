@@ -150,7 +150,7 @@ const fetchNamespaces = async () => {
 const fetchDeployments = async () => {
   loading.value = true
   try {
-    const res = await getDeployments(namespaceStore.currentNamespace)
+    const res = await getDeployments(namespaceStore.effectiveNamespace)
     deployments.value = res.data.data || []
   } catch (error) {
     ElMessage.error('获取Deployment列表失败')

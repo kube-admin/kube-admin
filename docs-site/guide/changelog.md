@@ -2,6 +2,22 @@
 
 遵循 [Keep a Changelog](https://keepachangelog.com/) 风格。
 
+## [0.3.0] - 2026-07-12
+
+### Added
+- **Namespace Terminating 诊断**：列表展开行显示根因 conditions（`NamespaceDeletionDiscoveryFailure` / `NamespaceContentRemaining` / `NamespaceFinalizersRemaining`）、finalizers、卡住时长；状态列 Terminating 标签旁加提示图标引导展开
+- **失效 APIService 抽屉**：DiscoveryFailed 根因一键查看集群所有非 Available APIService + 删除（治本 namespace 卡死，删除后 namespace 自动完成删除）
+- **namespace「所有命名空间」选项**：Header select 新增 all 选项，支持查看所有命名空间数据；store `effectiveNamespace` getter 集中转换 `all` -> `''` 传后端
+- **URL 状态化守卫**：菜单跳转等导航自动从 store 补 `cluster_id`/`namespace` 到 query，任何页面的 URL 都能还原集群/命名空间上下文
+
+### Changed
+- **namespace 默认改回 default**：进页面默认显示 default ns 数据；all 选项保留可手选查所有；URL/selector 为空串时恢复 default
+- **APIService 访问改用 kube-aggregator clientset**：标准 `kubernetes.Clientset` 无 `ApiregistrationV1()` 方法，`Client` 结构新增 `AggregatorClient` 字段（默认集群 `NewClient` + 多集群 `Manager.createClient` 两条路径）
+
+### Fixed
+- **node 等集群级资源详情 404**：URL `namespace=all` 被后端当作 namespace 作用域，集群级资源在 `namespace=all` 下找不到。`resource.go` `namespacedResource` 将 `'all'` 视为 all-namespaces（空）
+- **多集群路径 APIService 接口 panic**：`Manager.createClient` 未构造 `AggregatorClient`，多集群场景下 nil 解引用。补 aggregator client 构造
+
 ## [0.2.0] - 2026-07-11
 
 ### Added

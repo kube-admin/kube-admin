@@ -22,8 +22,9 @@ watch(() => route.query, (q) => {
     const cid = Number(q.cluster_id)
     if (!isNaN(cid)) nsStore.setCurrentClusterId(cid)
   }
-  if (typeof q.namespace === 'string' && q.namespace) {
-    nsStore.setCurrentNamespace(q.namespace)
+  // namespace 参数存在即同步；空串视为 default（为空时默认 default）
+  if (typeof q.namespace === 'string') {
+    nsStore.setCurrentNamespace(q.namespace || 'default')
   }
 }, { immediate: true })
 

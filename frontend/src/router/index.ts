@@ -3,6 +3,7 @@ import Layout from '@/layout/Index.vue'
 import nprogress from '@/utils/nprogress'
 import menus from './menus'
 import { initMenus } from './routers'
+import { useNamespaceStore } from '@/stores/namespace'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -64,6 +65,32 @@ router.beforeEach(async (to, from, next) => {
     }
   }
   
+  next()
+})
+
+// URL 状态化守卫：菜单跳转等不带 query 时，从 store 补 cluster_id/namespace，
+// 使任何导航后的 URL 都能还原集群/命名空间上下文（分享链接可复现）。
+// watch(store) 只在 store 变化时写 URL，导航不改 store，故需守卫兜底。
+router.beforeEach((to, from, next) => {
+  if (to.path === '/login' || to.path === '/404') {
+    next()
+    return
+  }
+  const nsStore = useNamespaceStore()
+  const query: Record<string, any> = { ...to.query }
+  let changed = false
+  if (nsStore.currentClusterId && !query.cluster_id) {
+    query.cluster_id = String(nsStore.currentClusterId)
+    changed = true
+  }
+  if (nsStore.currentNamespace && !query.namespace) {
+    query.namespace = nsStore.currentNamespace
+    changed = true
+  }
+  if (changed) {
+    next({ path: to.path, query, replace: true })
+    return
+  }
   next()
 })
 

@@ -315,6 +315,14 @@ const menus = [
     name: 'serviceDetail',
     component: () => import('@/views/k8s/ServiceDetail.vue'),
     meta: { showMenu: false }
+  },
+  // 通用资源详情页：任意 GVR（无专门详情页的资源走此页）。
+  // path = /k8s/resource-detail/:resource/:name，group/version/namespace 经 query 传递。
+  {
+    path: '/k8s/resource-detail/:resource/:name',
+    name: 'resourceDetail',
+    component: () => import('@/views/k8s/ResourceDetail.vue'),
+    meta: { showMenu: false }
   }
 ]
 export default menus

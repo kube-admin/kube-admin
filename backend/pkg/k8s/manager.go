@@ -9,6 +9,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	clientset "k8s.io/kube-aggregator/pkg/client/clientset_generated/clientset"
 	versioned "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -95,9 +96,15 @@ func (m *Manager) createClient(cluster *model.Cluster) (*Client, error) {
 		return nil, fmt.Errorf("failed to create metrics client: %v", err)
 	}
 
+	aggregatorClient, err := clientset.NewForConfig(restConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create aggregator client: %v", err)
+	}
+
 	return &Client{
 		ClientSet:        clientSet,
 		MetricsClientSet: metricsClientSet,
+		AggregatorClient: aggregatorClient,
 		Config:           restConfig,
 	}, nil
 }

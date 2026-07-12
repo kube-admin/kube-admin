@@ -103,17 +103,22 @@ const route = useRoute()
 const currentTypeKey = ref('')
 const currentType = computed(() => RESOURCE_TYPES.find((t) => t.key === currentTypeKey.value))
 
-// 资源详情页链接（StatefulSet/DaemonSet/ReplicaSet/Service 有详情页，其余保持纯文本）
+// 资源详情页链接：有专门详情页的走专门路由，其余走通用详情（带 GVR）。
 const detailPath = (row: any): string => {
-  const res = currentType.value?.gvr?.resource
+  const gvr = currentType.value?.gvr
+  const res = gvr?.resource
   if (!res) return ''
   const ns = row.metadata?.namespace
   const name = row.metadata?.name
+  // 专门详情页（概览更丰富）
+  if (res === 'pods') return `/k8s/pods/${name}?namespace=${ns}`
+  if (res === 'deployments') return `/k8s/deployments/${name}?namespace=${ns}`
   if (res === 'statefulsets') return `/k8s/statefulsets/${name}?namespace=${ns}`
   if (res === 'daemonsets') return `/k8s/daemonsets/${name}?namespace=${ns}`
   if (res === 'replicasets') return `/k8s/replicasets/${name}?namespace=${ns}`
   if (res === 'services') return `/k8s/services/${name}?namespace=${ns}`
-  return ''
+  // 其余任意 GVR 走通用详情（概览+YAML+Events）
+  return `/k8s/resource-detail/${res}/${name}?group=${gvr.group || ''}&version=${gvr.version}&namespace=${ns || ''}`
 }
 const items = ref<any[]>([])
 const searchKeyword = ref('')
@@ -122,7 +127,7 @@ const filteredItems = computed(() => items.value.filter((r: any) =>
 ))
 const namespaceStore = useNamespaceStore()
 // 命名空间统一用 Header 全局选择器（store），本页不再自带命名空间选择器
-const namespace = computed(() => namespaceStore.currentNamespace || '')
+const namespace = computed(() => namespaceStore.effectiveNamespace)
 const loading = ref(false)
 
 const yamlDrawer = ref()
@@ -164,6 +169,7 @@ const initFromRoute = () => {
 
 const fetchList = async () => {
   if (!currentType.value) return
+  // 命名空间型资源：'all' 时 namespace 为空串，查所有命名空间（后端支持）
   loading.value = true
   try {
     const ns = currentType.value.namespaced ? namespace.value : ''

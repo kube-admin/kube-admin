@@ -1,11 +1,14 @@
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { defineStore } from 'pinia'
 
 export const useNamespaceStore = defineStore('namespace', () => {
-  // 当前选中的命名空间
+  // 当前选中的命名空间（'all' 表示所有命名空间；空串由 Header 回填）
   const currentNamespace = ref<string>(
     localStorage.getItem('currentNamespace') || 'default'
   )
+
+  // effectiveNamespace：传给后端的实际 namespace。'all' -> ''（k8s all-namespaces）
+  const effectiveNamespace = computed(() => currentNamespace.value === 'all' ? '' : currentNamespace.value)
 
   // 命名空间列表
   const namespaces = ref<any[]>([])
@@ -36,6 +39,7 @@ export const useNamespaceStore = defineStore('namespace', () => {
 
   return {
     currentNamespace,
+    effectiveNamespace,
     namespaces,
     currentClusterId,
     setCurrentNamespace,
